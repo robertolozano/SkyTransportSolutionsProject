@@ -1,0 +1,385 @@
+import { Prisma } from '@prisma/client'
+import { prisma } from './db'
+import { TIER_ANNUAL_PRICE } from '@/rules/pricing'
+import type { ObligationType, Tier } from '@/rules'
+
+/**
+ * Read layer.
+ *
+ * Relational reads go through Prisma. The book-wide aggregates below are written as
+ * SQL because they are genuinely aggregate work — ranking every open obligation
+ * against fleet-level revenue exposure, bucketing a year of deadlines by month,
+ * comparing coverage against tier. Expressing these through an ORM would be slower
+ * and harder to read than the query itself.
+ */
+
+// --- shared SQL fragments ----------------------------------------------------
+
+/** Membership value per carrier: annual per-truck price across the active fleet. */
+const REVENUE_EXPR = Prisma.sql`
+  (CASE c.tier
+     WHEN 'SILVER'  THEN ${TIER_ANNUAL_PRICE.SILVER}
+     WHEN 'GOLD'    THEN ${TIER_ANNUAL_PRICE.GOLD}
+     WHEN 'DIAMOND' THEN ${TIER_ANNUAL_PRICE.DIAMOND}
+   END) * GREATEST(fleet.truck_count, 1)
+`
+
+const FLEET_JOIN = Prisma.sql`
+  LEFT JOIN (
+    SELECT "carrierId", COUNT(*)::int AS truck_count
+    FROM "Truck" WHERE "retiredAt" IS NULL
+    GROUP BY "carrierId"
+  ) fleet ON fleet."carrierId" = c.id
+`
+
+// --- 1. work queue -----------------------------------------------------------
+
+export interface WorkQueueRow {
+  obligationId: string
+  type: ObligationType
+  periodLabel: string
+  dueOn: Date
+  daysLeft: number
+  status: string
+  coveredByTier: boolean
+  citation: string
+  carrierId: string
+  dotNumber: string
+  legalName: string
+  tier: Tier
+  truckId: string | null
+  unitNumber: string | null
+  vin: string | null
+  driverName: string | null
+  revenueAtRisk: number
+  blockingCount: number
+}
+
+/**
+ * The dashboard queue: every open obligation ranked by urgency, carrying the revenue
+ * exposed behind it and how many downstream items it is currently holding up.
+ */
+export async function getWorkQueue(limit = 60): Promise<WorkQueueRow[]> {
+  return prisma.$queryRaw<WorkQueueRow[]>`
+    SELECT
+      o.id                          AS "obligationId",
+      o.type::text                  AS type,
+      o."periodLabel"               AS "periodLabel",
+      o."dueOn"                     AS "dueOn",
+      (o."dueOn"::date - CURRENT_DATE)::int AS "daysLeft",
+      o.status::text                AS status,
+      o."coveredByTier"             AS "coveredByTier",
+      o.citation                    AS citation,
+      c.id                          AS "carrierId",
+      c."dotNumber"                 AS "dotNumber",
+      c."legalName"                 AS "legalName",
+      c.tier::text                  AS tier,
+      t.id                          AS "truckId",
+      t."unitNumber"                AS "unitNumber",
+      t.vin                         AS vin,
+      CASE WHEN d.id IS NOT NULL
+           THEN d."firstName" || ' ' || d."lastName" END AS "driverName",
+      ${REVENUE_EXPR}::int          AS "revenueAtRisk",
+      COALESCE(blk.blocking_count, 0)::int AS "blockingCount"
+    FROM "Obligation" o
+    JOIN "Carrier" c ON c.id = o."carrierId"
+    ${FLEET_JOIN}
+    LEFT JOIN "Truck"  t ON t.id = o."truckId"
+    LEFT JOIN "Driver" d ON d.id = o."driverId"
+    LEFT JOIN (
+      SELECT ob."blockerId", COUNT(*)::int AS blocking_count
+      FROM "ObligationBlock" ob
+      JOIN "Obligation" blocked ON blocked.id = ob."blockedId"
+      WHERE blocked.status <> 'COMPLETED'
+      GROUP BY ob."blockerId"
+    ) blk ON blk."blockerId" = o.id
+    WHERE o.status <> 'COMPLETED'
+      AND o."dueOn" <= CURRENT_DATE + INTERVAL '120 days'
+    ORDER BY
+      -- Overdue first, then by how soon, then by what is riding on it.
+      (o."dueOn"::date - CURRENT_DATE) ASC,
+      COALESCE(blk.blocking_count, 0) DESC,
+      ${REVENUE_EXPR} DESC
+    LIMIT ${limit}
+  `
+}
+
+// --- 2. book-wide summary ----------------------------------------------------
+
+export interface BookSummary {
+  carriers: number
+  trucks: number
+  overdue: number
+  dueSoon: number
+  trucksAtRisk: number
+  revenueAtRisk: number
+  uncoveredObligations: number
+}
+
+export async function getBookSummary(): Promise<BookSummary> {
+  const [row] = await prisma.$queryRaw<
+    Array<{
+      carriers: number
+      trucks: number
+      overdue: number
+      dueSoon: number
+      trucksAtRisk: number
+      revenueAtRisk: number
+      uncoveredObligations: number
+    }>
+  >`
+    WITH open_obligations AS (
+      SELECT o.*, c.tier, c.id AS carrier_id
+      FROM "Obligation" o
+      JOIN "Carrier" c ON c.id = o."carrierId"
+      WHERE o.status <> 'COMPLETED'
+    ),
+    at_risk_trucks AS (
+      -- A truck is at risk when a service-critical obligation lands within 30 days.
+      SELECT DISTINCT "truckId"
+      FROM open_obligations
+      WHERE "truckId" IS NOT NULL
+        AND type = 'IRP_RENEWAL'
+        AND "dueOn" <= CURRENT_DATE + INTERVAL '30 days'
+    ),
+    at_risk_carriers AS (
+      SELECT DISTINCT c.id, c.tier
+      FROM open_obligations o
+      JOIN "Carrier" c ON c.id = o.carrier_id
+      WHERE o."dueOn" <= CURRENT_DATE + INTERVAL '30 days'
+    )
+    SELECT
+      (SELECT COUNT(*)::int FROM "Carrier")                                   AS carriers,
+      (SELECT COUNT(*)::int FROM "Truck" WHERE "retiredAt" IS NULL)           AS trucks,
+      (SELECT COUNT(*)::int FROM open_obligations WHERE status = 'OVERDUE')   AS overdue,
+      (SELECT COUNT(*)::int FROM open_obligations WHERE status = 'DUE')       AS "dueSoon",
+      (SELECT COUNT(*)::int FROM at_risk_trucks)                              AS "trucksAtRisk",
+      (SELECT COALESCE(SUM(
+          (CASE arc.tier
+             WHEN 'SILVER'  THEN ${TIER_ANNUAL_PRICE.SILVER}
+             WHEN 'GOLD'    THEN ${TIER_ANNUAL_PRICE.GOLD}
+             WHEN 'DIAMOND' THEN ${TIER_ANNUAL_PRICE.DIAMOND}
+           END) * GREATEST(COALESCE(f.truck_count, 1), 1)
+        ), 0)::int
+        FROM at_risk_carriers arc
+        LEFT JOIN (
+          SELECT "carrierId", COUNT(*)::int AS truck_count
+          FROM "Truck" WHERE "retiredAt" IS NULL GROUP BY "carrierId"
+        ) f ON f."carrierId" = arc.id
+      )                                                                       AS "revenueAtRisk",
+      (SELECT COUNT(*)::int FROM open_obligations WHERE "coveredByTier" = false) AS "uncoveredObligations"
+  `
+  return row
+}
+
+// --- 3. carrier list ---------------------------------------------------------
+
+export interface CarrierRiskRow {
+  id: string
+  dotNumber: string
+  legalName: string
+  city: string
+  state: string
+  tier: Tier
+  operationType: string
+  truckCount: number
+  openCount: number
+  overdueCount: number
+  uncoveredCount: number
+  nextDueOn: Date | null
+  outOfServiceOn: Date | null
+  daysToOutOfService: number | null
+  revenueAtRisk: number
+}
+
+export async function getCarrierRisk(): Promise<CarrierRiskRow[]> {
+  return prisma.$queryRaw<CarrierRiskRow[]>`
+    SELECT
+      c.id, c."dotNumber", c."legalName", c.city, c.state,
+      c.tier::text AS tier,
+      c."operationType"::text AS "operationType",
+      COALESCE(fleet.truck_count, 0)::int AS "truckCount",
+      COALESCE(agg.open_count, 0)::int      AS "openCount",
+      COALESCE(agg.overdue_count, 0)::int   AS "overdueCount",
+      COALESCE(agg.uncovered_count, 0)::int AS "uncoveredCount",
+      agg.next_due                          AS "nextDueOn",
+      agg.oos_date                          AS "outOfServiceOn",
+      (agg.oos_date::date - CURRENT_DATE)::int AS "daysToOutOfService",
+      ${REVENUE_EXPR}::int                  AS "revenueAtRisk"
+    FROM "Carrier" c
+    ${FLEET_JOIN}
+    LEFT JOIN (
+      SELECT
+        "carrierId",
+        COUNT(*)::int AS open_count,
+        COUNT(*) FILTER (WHERE status = 'OVERDUE')::int AS overdue_count,
+        COUNT(*) FILTER (WHERE "coveredByTier" = false)::int AS uncovered_count,
+        MIN("dueOn") AS next_due,
+        -- Service-critical obligations are the ones that actually park a truck.
+        MIN("dueOn") FILTER (
+          WHERE type IN ('IRP_RENEWAL', 'MCS150_BIENNIAL_UPDATE')
+        ) AS oos_date
+      FROM "Obligation"
+      WHERE status <> 'COMPLETED'
+      GROUP BY "carrierId"
+    ) agg ON agg."carrierId" = c.id
+    ORDER BY agg.oos_date ASC NULLS LAST
+  `
+}
+
+// --- 4. coverage gaps --------------------------------------------------------
+
+export interface CoverageGapRow {
+  carrierId: string
+  dotNumber: string
+  legalName: string
+  tier: Tier
+  truckCount: number
+  uncoveredCount: number
+  uncoveredTypes: string[]
+  upgradeValue: number
+}
+
+/**
+ * Obligations a carrier has that their plan does not include: the upsell list for
+ * sales, and simultaneously the documented record of what fell outside the agreement.
+ */
+export async function getCoverageGaps(): Promise<CoverageGapRow[]> {
+  return prisma.$queryRaw<CoverageGapRow[]>`
+    SELECT
+      c.id AS "carrierId", c."dotNumber", c."legalName",
+      c.tier::text AS tier,
+      COALESCE(fleet.truck_count, 0)::int AS "truckCount",
+      COUNT(o.id)::int AS "uncoveredCount",
+      ARRAY_AGG(DISTINCT o.type::text) AS "uncoveredTypes",
+      (CASE c.tier
+         WHEN 'SILVER' THEN ${TIER_ANNUAL_PRICE.DIAMOND - TIER_ANNUAL_PRICE.SILVER}
+         WHEN 'GOLD'   THEN ${TIER_ANNUAL_PRICE.DIAMOND - TIER_ANNUAL_PRICE.GOLD}
+         ELSE 0
+       END) * GREATEST(COALESCE(fleet.truck_count, 1), 1) AS "upgradeValue"
+    FROM "Obligation" o
+    JOIN "Carrier" c ON c.id = o."carrierId"
+    ${FLEET_JOIN}
+    WHERE o."coveredByTier" = false
+      AND o.status <> 'COMPLETED'
+      AND o."dueOn" <= CURRENT_DATE + INTERVAL '365 days'
+    GROUP BY c.id, c."dotNumber", c."legalName", c.tier, fleet.truck_count
+    ORDER BY "upgradeValue" DESC, "uncoveredCount" DESC
+  `
+}
+
+// --- 5. seasonal volume ------------------------------------------------------
+
+export interface MonthVolumeRow {
+  month: Date
+  total: number
+  ifta: number
+  hvut: number
+  ucr: number
+  irp: number
+  ctc: number
+  other: number
+}
+
+/** Monthly filing volume — the seasonal wave, straight out of a date_trunc rollup. */
+export async function getMonthlyVolume(): Promise<MonthVolumeRow[]> {
+  return prisma.$queryRaw<MonthVolumeRow[]>`
+    SELECT
+      DATE_TRUNC('month', "dueOn")::date AS month,
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE type = 'IFTA_QUARTERLY_RETURN')::int  AS ifta,
+      COUNT(*) FILTER (WHERE type = 'HVUT_FORM_2290')::int         AS hvut,
+      COUNT(*) FILTER (WHERE type = 'UCR_RENEWAL')::int            AS ucr,
+      COUNT(*) FILTER (WHERE type = 'IRP_RENEWAL')::int            AS irp,
+      COUNT(*) FILTER (WHERE type = 'CARB_CLEAN_TRUCK_CHECK')::int AS ctc,
+      COUNT(*) FILTER (WHERE type NOT IN (
+        'IFTA_QUARTERLY_RETURN','HVUT_FORM_2290','UCR_RENEWAL','IRP_RENEWAL','CARB_CLEAN_TRUCK_CHECK'
+      ))::int AS other
+    FROM "Obligation"
+    WHERE "dueOn" >= DATE_TRUNC('month', CURRENT_DATE)
+      AND "dueOn" <  DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '12 months'
+    GROUP BY 1
+    ORDER BY 1
+  `
+}
+
+// --- 6. relational reads (Prisma) -------------------------------------------
+
+export async function getCarrierByDot(dotNumber: string) {
+  return prisma.carrier.findUnique({
+    where: { dotNumber },
+    include: {
+      trucks: { orderBy: { unitNumber: 'asc' } },
+      drivers: { orderBy: { lastName: 'asc' } },
+      credentials: true,
+      obligations: {
+        orderBy: { dueOn: 'asc' },
+        include: {
+          truck: true,
+          driver: true,
+          blockedBy: { include: { blocker: { include: { truck: true } } } },
+          filings: true,
+        },
+      },
+    },
+  })
+}
+
+export async function getTruckByVin(vin: string) {
+  return prisma.truck.findUnique({
+    where: { vin },
+    include: {
+      carrier: true,
+      credentials: true,
+      obligations: {
+        orderBy: { dueOn: 'asc' },
+        include: {
+          blockedBy: { include: { blocker: true } },
+          blocking: { include: { blocked: true } },
+          filings: true,
+        },
+      },
+    },
+  })
+}
+
+export interface DeadlineFilters {
+  type?: ObligationType
+  status?: 'UPCOMING' | 'DUE' | 'OVERDUE' | 'COMPLETED'
+  state?: string
+  uncoveredOnly?: boolean
+  blockedOnly?: boolean
+}
+
+export async function getDeadlines(filters: DeadlineFilters, limit = 200) {
+  return prisma.obligation.findMany({
+    where: {
+      ...(filters.type ? { type: filters.type } : {}),
+      ...(filters.status ? { status: filters.status } : { status: { not: 'COMPLETED' } }),
+      ...(filters.uncoveredOnly ? { coveredByTier: false } : {}),
+      ...(filters.state ? { carrier: { state: filters.state } } : {}),
+      ...(filters.blockedOnly ? { blockedBy: { some: { blocker: { status: { not: 'COMPLETED' } } } } } : {}),
+    },
+    include: {
+      carrier: true,
+      truck: true,
+      driver: true,
+      blockedBy: { include: { blocker: true } },
+    },
+    orderBy: { dueOn: 'asc' },
+    take: limit,
+  })
+}
+
+export async function getStatesInBook(): Promise<string[]> {
+  const rows = await prisma.carrier.findMany({
+    select: { state: true },
+    distinct: ['state'],
+    orderBy: { state: 'asc' },
+  })
+  return rows.map((r) => r.state)
+}
+
+export async function getLastRecompute() {
+  return prisma.recomputeRun.findFirst({ orderBy: { startedAt: 'desc' } })
+}

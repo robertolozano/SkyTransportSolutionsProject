@@ -6,21 +6,34 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:recompute": "tsx prisma/recompute.ts",
+    "db:reset": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts && tsx prisma/recompute.ts && tsx prisma/backfill.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:backfill": "tsx prisma/backfill.ts"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.3",
     "next": "16.3.0",
+    "prisma": "^6.19.3",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^20.19.43",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "tsx": "^4.23.12",
+    "typescript": "^5",
+    "vitest": "^2.1.9"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }

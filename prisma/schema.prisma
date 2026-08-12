@@ -1,0 +1,287 @@
+// Compliance Radar — schema
+//
+// Design note: the two central tables are Credential and Obligation.
+//   Credential = a thing the carrier HOLDS  (a plate, a medical card, a tax receipt)
+//   Obligation = a thing the carrier must DO by a date (file the return, renew the plate)
+//
+// Obligations are DERIVED by the pure rules engine in src/rules and then MATERIALIZED
+// into this database, so that book-wide aggregation is a GROUP BY rather than an
+// application-code loop over 18,000 carriers.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Tier {
+  SILVER
+  GOLD
+  DIAMOND
+}
+
+enum OperationType {
+  INTERSTATE
+  INTRASTATE
+}
+
+enum CredentialType {
+  USDOT_REGISTRATION
+  MC_AUTHORITY
+  INSURANCE
+  PROCESS_AGENT
+  UCR_REGISTRATION
+  IFTA_LICENSE
+  IRP_PLATE
+  HVUT_RECEIPT
+  EMISSIONS_CERT
+  CA_MCP
+  MEDICAL_CARD
+  CDL
+}
+
+enum CredentialStatus {
+  ACTIVE
+  EXPIRING
+  EXPIRED
+  MISSING
+}
+
+enum ObligationType {
+  MCS150_BIENNIAL_UPDATE
+  IFTA_QUARTERLY_RETURN
+  HVUT_FORM_2290
+  CARB_CLEAN_TRUCK_CHECK
+  IRP_RENEWAL
+  UCR_RENEWAL
+  MEDICAL_CARD_RENEWAL
+}
+
+enum ObligationStatus {
+  UPCOMING
+  DUE
+  OVERDUE
+  COMPLETED
+}
+
+enum DocumentStatus {
+  REQUESTED
+  RECEIVED
+  REJECTED
+}
+
+// ---------------------------------------------------------------------------
+// Facts — entered/held, never derived
+// ---------------------------------------------------------------------------
+
+model Carrier {
+  id            String        @id @default(cuid())
+  dotNumber     String        @unique
+  mcNumber      String?
+  legalName     String
+  dba           String?
+  ein           String
+  addressLine   String
+  city          String
+  state         String
+  zip           String
+  baseState     String
+  operationType OperationType
+  forHire       Boolean       @default(true)
+  hazmat        Boolean       @default(false)
+  tier          Tier          @default(SILVER)
+  memberSince   DateTime
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  trucks      Truck[]
+  drivers     Driver[]
+  credentials Credential[]
+  obligations Obligation[]
+  documents   Document[]
+
+  @@index([state])
+  @@index([tier])
+}
+
+model Truck {
+  id             String    @id @default(cuid())
+  carrierId      String
+  vin            String    @unique
+  unitNumber     String
+  year           Int
+  make           String
+  grossWeightLbs Int
+  plateState     String
+  retiredAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  carrier     Carrier      @relation(fields: [carrierId], references: [id], onDelete: Cascade)
+  credentials Credential[]
+  obligations Obligation[]
+
+  @@index([carrierId])
+}
+
+model Driver {
+  id           String    @id @default(cuid())
+  carrierId    String
+  firstName    String
+  lastName     String
+  cdlNumber    String
+  cdlState     String
+  hireDate     DateTime
+  terminatedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  carrier     Carrier      @relation(fields: [carrierId], references: [id], onDelete: Cascade)
+  credentials Credential[]
+  obligations Obligation[]
+
+  @@index([carrierId])
+}
+
+/// A credential the carrier HOLDS. Exactly one of truckId / driverId may be set;
+/// when both are null the credential belongs to the carrier itself.
+model Credential {
+  id         String           @id @default(cuid())
+  carrierId  String
+  truckId    String?
+  driverId   String?
+  type       CredentialType
+  status     CredentialStatus @default(ACTIVE)
+  identifier String?
+  issuedOn   DateTime?
+  expiresOn  DateTime?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  carrier   Carrier    @relation(fields: [carrierId], references: [id], onDelete: Cascade)
+  truck     Truck?     @relation(fields: [truckId], references: [id], onDelete: Cascade)
+  driver    Driver?    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  documents Document[]
+
+  @@index([carrierId])
+  @@index([truckId])
+  @@index([expiresOn])
+  @@index([type, status])
+}
+
+/// Type-level dependency edges: "obligation X must be completed before Y can proceed".
+/// Projected from the `gates` declared on each rule, so the persisted graph can never
+/// drift from the engine, while still being queryable from SQL.
+model ObligationGate {
+  id          String         @id @default(cuid())
+  blockerType ObligationType
+  blockedType ObligationType
+  reason      String
+  citation    String
+
+  @@unique([blockerType, blockedType])
+}
+
+// ---------------------------------------------------------------------------
+// Derived — written by the materializer, never hand-entered
+// ---------------------------------------------------------------------------
+
+model Obligation {
+  id             String           @id @default(cuid())
+  ruleId         String
+  carrierId      String
+  truckId        String?
+  driverId       String?
+  type           ObligationType
+  periodLabel    String
+  dueOn          DateTime
+  earliestStart  DateTime?
+  status         ObligationStatus @default(UPCOMING)
+  coveredByTier  Boolean          @default(true)
+  citation       String
+  computedAt     DateTime         @default(now())
+  completedAt    DateTime?
+
+  carrier  Carrier @relation(fields: [carrierId], references: [id], onDelete: Cascade)
+  truck    Truck?  @relation(fields: [truckId], references: [id], onDelete: Cascade)
+  driver   Driver? @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  blockedBy ObligationBlock[] @relation("BlockedObligation")
+  blocking  ObligationBlock[] @relation("BlockerObligation")
+  filings   Filing[]
+
+  @@unique([ruleId, carrierId, truckId, driverId, periodLabel])
+  @@index([dueOn, status])
+  @@index([carrierId])
+  @@index([truckId])
+  @@index([status])
+}
+
+/// Instance-level blocker edges, generated from CredentialGate during materialization.
+model ObligationBlock {
+  id        String @id @default(cuid())
+  blockedId String
+  blockerId String
+  reason    String
+
+  blocked Obligation @relation("BlockedObligation", fields: [blockedId], references: [id], onDelete: Cascade)
+  blocker Obligation @relation("BlockerObligation", fields: [blockerId], references: [id], onDelete: Cascade)
+
+  @@unique([blockedId, blockerId])
+  @@index([blockerId])
+}
+
+/// Audit trail for materialization runs — answers "why did we think this was due?"
+model RecomputeRun {
+  id                String   @id @default(cuid())
+  startedAt         DateTime @default(now())
+  finishedAt        DateTime?
+  carriersProcessed Int      @default(0)
+  obligationsWritten Int     @default(0)
+  blocksWritten     Int      @default(0)
+  asOf              DateTime
+}
+
+// ---------------------------------------------------------------------------
+// Evidence & submissions
+// ---------------------------------------------------------------------------
+
+model Document {
+  id           String         @id @default(cuid())
+  carrierId    String
+  credentialId String?
+  type         String
+  fileName     String
+  storagePath  String
+  status       DocumentStatus @default(REQUESTED)
+  requestedAt  DateTime?
+  uploadedAt   DateTime?
+  expiresOn    DateTime?
+  createdAt    DateTime       @default(now())
+
+  carrier    Carrier     @relation(fields: [carrierId], references: [id], onDelete: Cascade)
+  credential Credential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+
+  @@index([carrierId])
+  @@index([status])
+}
+
+model Filing {
+  id              String   @id @default(cuid())
+  obligationId    String
+  agency          String
+  submittedAt     DateTime
+  submittedBy     String
+  confirmationRef String
+
+  obligation Obligation @relation(fields: [obligationId], references: [id], onDelete: Cascade)
+
+  @@index([obligationId])
+}
