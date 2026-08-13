@@ -59,19 +59,41 @@ export default async function ScansPage() {
           <Stat label="Awaiting review" value={awaitingReview.length} hint="Not yet confirmed" />
         </div>
 
-        {!configured && (
-          <div className="mb-6 rounded-lg border border-medium-edge bg-medium-soft px-5 py-4">
-            <div className="text-[13px] font-semibold text-medium">
-              Extraction is not configured in this environment
+        <div className="mb-6 rounded-lg border border-edge bg-surface px-5 py-4">
+          <div className="text-[13px] font-semibold text-ink">Two reading paths, one pipeline</div>
+          <div className="mt-2 grid gap-4 text-[13px] leading-relaxed text-ink-soft lg:grid-cols-2">
+            <div>
+              <div className="font-medium text-ink">PDF → deterministic parser</div>
+              <p className="mt-1">
+                Reads the PDF text layer and pulls fields by their printed labels. No model, no
+                credentials, no variance — and genuinely the right tool for generated documents:
+                issued certificates, cab cards, insurance binders. <span className="text-ink">This
+                is the path the demo runs.</span>
+              </p>
             </div>
-            <p className="mt-1 text-[13px] leading-relaxed text-ink-soft">
-              No <span className="numeric">ANTHROPIC_API_KEY</span> is set, so uploads are stored
-              and queued for manual review rather than read. The pipeline is wired end to end —
-              set the key and the same uploads extract without any code change. Nothing here is
-              simulated: an unread document is shown as unread.
-            </p>
+            <div>
+              <div className="font-medium text-ink">Photograph → vision model</div>
+              <p className="mt-1">
+                A photo has no text layer, so reading one needs vision. That is the case that
+                actually matters in production — a driver photographing a card at a truck stop —
+                and it is what a deployed system would run.{' '}
+                {configured ? (
+                  <span className="text-good">Credentials are configured here.</span>
+                ) : (
+                  <span className="text-medium">
+                    No <span className="numeric">ANTHROPIC_API_KEY</span> is set in this
+                    environment, so photographs are stored and queued for a person instead.
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
-        )}
+          <p className="mt-3 border-t border-edge pt-3 text-[13px] leading-relaxed text-ink-faint">
+            Both paths return the same shape, so reconciliation, review, and the client&apos;s
+            &ldquo;what we read&rdquo; panel are identical either way. Nothing here is simulated —
+            an unread document is shown as unread.
+          </p>
+        </div>
 
         <Section title="Recent uploads">
           {documents.length === 0 ? (
@@ -123,6 +145,13 @@ export default async function ScansPage() {
                             {conflicts.length} mismatch{conflicts.length === 1 ? '' : 'es'}
                           </span>
                         )}
+                        {doc.extractionMethod && (
+                          <span className="rounded border border-edge bg-canvas px-1.5 py-0.5 text-[11px] text-ink-soft">
+                            {doc.extractionMethod === 'PDF_TEXT'
+                              ? 'PDF text parser'
+                              : 'Vision model'}
+                          </span>
+                        )}
                         <span className="rounded border border-edge bg-canvas px-1.5 py-0.5 text-[11px] text-ink-soft">
                           {doc.extractionStatus.toLowerCase().replace('_', ' ')}
                         </span>
@@ -131,7 +160,21 @@ export default async function ScansPage() {
 
                     <div className="grid gap-5 px-5 py-4 lg:grid-cols-[200px_1fr]">
                       <div>
-                        {doc.storagePath ? (
+                        {/* A PDF will not render in an <img>, so it gets its own affordance. */}
+                        {doc.storagePath && doc.mimeType === 'application/pdf' ? (
+                          <a
+                            href={`/api/documents/${doc.id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex h-28 flex-col items-center justify-center rounded-md border border-edge bg-canvas text-[12px] text-ink-soft transition-colors hover:border-edge-strong"
+                          >
+                            <span className="text-[22px]">📄</span>
+                            <span className="mt-1 font-medium">Open PDF</span>
+                            <span className="mt-0.5 text-ink-faint">
+                              {doc.sizeBytes ? `${Math.round(doc.sizeBytes / 1024)} KB` : ''}
+                            </span>
+                          </a>
+                        ) : doc.storagePath ? (
                           <a href={`/api/documents/${doc.id}`} target="_blank" rel="noreferrer">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
@@ -142,7 +185,7 @@ export default async function ScansPage() {
                           </a>
                         ) : (
                           <div className="flex h-28 items-center justify-center rounded-md border border-dashed border-edge-strong text-[12px] text-ink-faint">
-                            No image
+                            No file
                           </div>
                         )}
                       </div>

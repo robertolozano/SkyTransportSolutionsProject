@@ -289,6 +289,8 @@ model Document {
   extractedFields  Json?
   /// Model's own confidence, surfaced rather than hidden — low confidence routes to review.
   confidence       String?
+  /// Which path read the document: PDF_TEXT (deterministic) or VISION_MODEL.
+  extractionMethod String?
   extractionNote   String?
   extractedAt      DateTime?
   /// Set once a person has checked the extracted values against the image.

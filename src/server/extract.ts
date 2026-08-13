@@ -50,10 +50,13 @@ export interface ExtractedFields {
   notes: string | null
 }
 
+/** Which path read the document. Surfaced in the UI — the two are not equivalent. */
+export type ExtractionMethod = 'PDF_TEXT' | 'VISION_MODEL'
+
 export type ExtractionResult =
-  | { status: 'EXTRACTED'; fields: ExtractedFields }
+  | { status: 'EXTRACTED'; fields: ExtractedFields; method: ExtractionMethod; note?: string }
   | { status: 'UNAVAILABLE'; note: string }
-  | { status: 'FAILED'; note: string }
+  | { status: 'FAILED'; note: string; method?: ExtractionMethod }
 
 /** JSON Schema for structured output — the model cannot return a different shape. */
 const EXTRACTION_SCHEMA = {
@@ -124,12 +127,22 @@ Set confidence to reflect the reading as a whole, and use low freely: it routes 
 /** Images beyond this are downscaled client-side before upload. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-const SUPPORTED_MEDIA = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
-export type SupportedMedia = (typeof SUPPORTED_MEDIA)[number]
+const SUPPORTED_IMAGE_MEDIA = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
+export type SupportedMedia = (typeof SUPPORTED_IMAGE_MEDIA)[number]
 
-export function isSupportedMedia(mime: string): mime is SupportedMedia {
-  return (SUPPORTED_MEDIA as readonly string[]).includes(mime)
+export const PDF_MEDIA = 'application/pdf'
+
+export function isSupportedImage(mime: string): mime is SupportedMedia {
+  return (SUPPORTED_IMAGE_MEDIA as readonly string[]).includes(mime)
 }
+
+/** Everything the upload path accepts: photographs, and generated PDFs. */
+export function isSupportedMedia(mime: string): boolean {
+  return isSupportedImage(mime) || mime === PDF_MEDIA
+}
+
+/** For the file picker's `accept` attribute. */
+export const ACCEPTED_UPLOAD_TYPES = [...SUPPORTED_IMAGE_MEDIA, PDF_MEDIA].join(',')
 
 /**
  * True when a model is reachable. Checked rather than assumed so the upload path
@@ -139,7 +152,41 @@ export function extractionConfigured(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)
 }
 
+/**
+ * Read a submitted document.
+ *
+ * Dispatches on file type, because the two paths are genuinely different tools:
+ *
+ *  - **PDF** → the deterministic text-layer parser. No credentials, no model, no
+ *    variance. Correct for generated documents, and the path the demo uses.
+ *  - **Image** → the vision model. The only thing that can read a photograph,
+ *    and what a production deployment runs for the case that actually matters —
+ *    a driver photographing a card on his phone.
+ *
+ * Both return the same shape, so reconciliation and review do not care which ran.
+ */
 export async function extractDocument(
+  bytes: Buffer,
+  mediaType: string,
+  expectedType?: string,
+): Promise<ExtractionResult> {
+  if (mediaType === PDF_MEDIA) {
+    const { parsePdfDocument } = await import('./pdfParse')
+    const outcome = await parsePdfDocument(bytes)
+    return outcome.ok && outcome.fields
+      ? { status: 'EXTRACTED', fields: outcome.fields, method: 'PDF_TEXT', note: outcome.note }
+      : { status: 'FAILED', note: outcome.note, method: 'PDF_TEXT' }
+  }
+
+  if (!isSupportedImage(mediaType)) {
+    return { status: 'FAILED', note: `Unsupported file type: ${mediaType}.` }
+  }
+
+  return extractImage(bytes.toString('base64'), mediaType, expectedType)
+}
+
+/** Vision path — the production route for photographed documents. */
+export async function extractImage(
   imageBase64: string,
   mediaType: SupportedMedia,
   expectedType?: string,
@@ -147,7 +194,7 @@ export async function extractDocument(
   if (!extractionConfigured()) {
     return {
       status: 'UNAVAILABLE',
-      note: 'No model credentials configured. The document was stored and queued for manual review.',
+      note: 'Reading a photograph needs the vision model, which has no credentials configured here. The document was stored and queued for manual review. Upload a PDF to exercise the deterministic parser instead.',
     }
   }
 
@@ -200,16 +247,25 @@ export async function extractDocument(
     }
 
     const fields = JSON.parse(text.text) as ExtractedFields
-    return { status: 'EXTRACTED', fields }
+    return { status: 'EXTRACTED', fields, method: 'VISION_MODEL' }
   } catch (error) {
     if (error instanceof Anthropic.RateLimitError) {
-      return { status: 'FAILED', note: 'Rate limited. The document is stored; retry extraction later.' }
+      return {
+        status: 'FAILED',
+        method: 'VISION_MODEL',
+        note: 'Rate limited. The document is stored; retry extraction later.',
+      }
     }
     if (error instanceof Anthropic.APIError) {
-      return { status: 'FAILED', note: `Extraction failed (${error.status}). Queued for manual review.` }
+      return {
+        status: 'FAILED',
+        method: 'VISION_MODEL',
+        note: `Extraction failed (${error.status}). Queued for manual review.`,
+      }
     }
     return {
       status: 'FAILED',
+      method: 'VISION_MODEL',
       note: error instanceof Error ? error.message : 'Extraction failed for an unknown reason.',
     }
   }

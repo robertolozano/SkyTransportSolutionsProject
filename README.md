@@ -185,14 +185,30 @@ calendar feed, reached by an unguessable token with no login. It sits in a separ
 so an owner-operator opening a link from a text message is not handed an operations console. A
 toggle in each shell switches between the two views for demo purposes.
 
-**Document capture and extraction.** On the documents tab, `capture="environment"` opens the rear
-camera directly — tap, photograph, done. The image is downscaled in the browser (a 4–12 MB camera
-shot becomes ~200 KB; on truck-stop signal that is the difference between the upload finishing and
-the driver giving up), stored outside `public/`, and read by Claude via vision with a JSON schema
-constraining the output. Extraction **proposes**; the staff `/scans` screen sets what was read
-against what the credential record says, and a person confirms. A misread expiry date would
-silently move a compliance deadline — which is the exact failure this product exists to prevent —
-so nothing writes back automatically.
+**Document capture.** Three ways in, because the right one depends on where the user is:
+**Open camera** uses `getUserMedia`, so a live viewfinder appears on a laptop as well as a phone
+(the `capture` attribute alone only opens the camera on mobile — on desktop browsers silently
+ignore it and show a file dialog); **Choose file** accepts an image or a PDF; and **Download a
+sample to test** generates a filled PDF for that specific request so the loop can be exercised
+without hunting for a real medical card. Photographs are downscaled in the browser first — a
+4–12 MB camera shot becomes ~200 KB, and on truck-stop signal that decides whether the upload
+finishes.
+
+**Two reading paths, one pipeline.**
+
+| Input | Path | Notes |
+|---|---|---|
+| **PDF** | Deterministic text-layer parser | No model, no credentials, no variance. Reads fields by their printed labels. **This is what the demo runs.** |
+| **Photograph** | Claude vision, JSON-schema constrained | The only thing that can read a photo. What a production deployment runs, since the case that matters is a driver photographing a card at a truck stop. |
+
+Both return the same shape, so reconciliation, review, and the client's "what we read" panel are
+identical either way. The parser refuses ambiguous dates rather than guessing — `03/04/2027` could
+be 3 April or 4 March, and half the guesses would silently move a compliance deadline. That rule is
+pinned by tests.
+
+**Extraction proposes; a person commits.** The staff `/scans` screen sets what was read against
+what the credential record says and flags differences. Nothing writes back to a credential
+automatically — a misread expiry is exactly the failure this product exists to prevent.
 
 **Beyond deriving deadlines, the engine also:**
 
@@ -234,10 +250,14 @@ hides its own uncertainty is worse than one that admits it:
   per-filing handling times are printed in full on `/planning` so the utilisation figures are
   read as a shape rather than a number.
 - **No cross-portal reconciliation.** Needs live agency data.
-- **Extraction needs a key, and says so when it doesn't have one.** With no `ANTHROPIC_API_KEY`
-  set, uploads still store and still satisfy the request — they are marked *unavailable* and
-  queued for manual review. The `/scans` page states this in place rather than showing a
-  plausible-looking result. Set the key and the same uploads extract with no code change.
+- **The vision path needs a key; the PDF path does not.** With no `ANTHROPIC_API_KEY` set,
+  PDFs still extract (deterministic parser) and photographs are stored, marked *unavailable*, and
+  queued for manual review. The `/scans` page states which path ran on every document rather than
+  showing a plausible-looking result. Set the key and photographs extract with no code change.
+- **The demo parser is not the production answer.** It reads a PDF text layer, which a photograph
+  does not have. It is the right tool for generated documents and it makes the pipeline
+  demonstrable without credentials — but the case that actually matters in this business is a
+  phone photo, and that needs vision.
 - **Confirming an extraction does not write back yet.** The comparison against the credential
   record is shown; applying a value and letting the rules engine recompute from it is the next
   step.
@@ -266,9 +286,10 @@ hides its own uncertainty is worse than one that admits it:
 8. **`/onboarding`** — the engine run forward. Toggle "crossing state lines" off and watch
    half the requirements disappear and the price drop from $1,200 to $975.
 9. **Flip the toggle to Client** (bottom of the sidebar) — the same account, seen by the carrier.
-   Same data, no jargon, no dashboard. The Documents tab shows what Sky is waiting on; tap
-   **Take photo** and the capture → downscale → store → extract → review loop runs end to end.
-   Then subscribe to the calendar feed.
+   Same data, no jargon, no dashboard. On **Documents**, click *Download a sample to test*, then
+   *Choose file* and upload it back: the capture → parse → reconcile loop runs end to end and the
+   page shows what was read. *Open camera* does the same from a live viewfinder. Then subscribe to
+   the calendar feed.
 10. **Back to Staff → `/scans`** — the other half of that loop: what was read from the image set
     against what the record says, with mismatches called out for a person to adjudicate.
 

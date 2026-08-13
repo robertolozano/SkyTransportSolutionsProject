@@ -19,9 +19,11 @@
     "@anthropic-ai/sdk": "^0.116.0",
     "@prisma/client": "^6.19.3",
     "next": "16.3.0",
+    "pdf-lib": "^1.17.1",
     "prisma": "^6.19.3",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "unpdf": "^1.8.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

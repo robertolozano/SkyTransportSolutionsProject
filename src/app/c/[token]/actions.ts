@@ -52,10 +52,10 @@ export async function submitDocument(
     return { ok: false, message: 'No photo was attached.' }
   }
   if (file.size > MAX_IMAGE_BYTES) {
-    return { ok: false, message: 'That image is too large. Try again with a smaller photo.' }
+    return { ok: false, message: 'That file is too large. Try again with a smaller photo.' }
   }
   if (!isSupportedMedia(file.type)) {
-    return { ok: false, message: 'Please send a photo (JPEG, PNG, or WebP).' }
+    return { ok: false, message: 'Please send a photo (JPEG, PNG, WebP) or a PDF.' }
   }
 
   const bytes = Buffer.from(await file.arrayBuffer())
@@ -70,11 +70,13 @@ export async function submitDocument(
       mimeType: file.type,
       sizeBytes: stored.sizeBytes,
       uploadedAt: new Date(),
-      extractionStatus: extractionConfigured() ? 'PENDING' : 'UNAVAILABLE',
+      // A PDF always has a parser available; an image needs the vision model.
+      extractionStatus:
+        file.type === 'application/pdf' || extractionConfigured() ? 'PENDING' : 'UNAVAILABLE',
     },
   })
 
-  const result = await extractDocument(bytes.toString('base64'), file.type, document.type)
+  const result = await extractDocument(bytes, file.type, document.type)
 
   if (result.status === 'EXTRACTED') {
     await prisma.document.update({
@@ -84,7 +86,8 @@ export async function submitDocument(
         detectedType: result.fields.documentType,
         extractedFields: result.fields as unknown as object,
         confidence: result.fields.confidence,
-        extractionNote: result.fields.notes,
+        extractionMethod: result.method,
+        extractionNote: result.fields.notes ?? result.note ?? null,
         extractedAt: new Date(),
       },
     })
@@ -93,6 +96,7 @@ export async function submitDocument(
       where: { id: document.id },
       data: {
         extractionStatus: result.status,
+        extractionMethod: 'method' in result ? (result.method ?? null) : null,
         extractionNote: result.note,
         extractedAt: new Date(),
       },

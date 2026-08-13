@@ -58,7 +58,7 @@ export default async function ClientDocumentsPage({
             We need {outstanding.length === 1 ? 'this' : `these ${outstanding.length}`}
           </h2>
           <p className="mb-4 text-[13px] leading-relaxed text-ink-faint">
-            Take a photo with your phone — no app or login needed. Lay the document flat, get all
+            Photograph it or attach a PDF — no app or login needed. Lay the document flat, get all
             four corners in frame, and we&apos;ll read the rest.
           </p>
 
