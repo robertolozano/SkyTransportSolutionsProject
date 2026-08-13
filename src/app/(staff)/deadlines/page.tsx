@@ -3,7 +3,9 @@ import {
   getDeadlines,
   getDeadlineCount,
   getStatesInBook,
+  getCarriersInBook,
   type DeadlineFilters,
+  type DeadlineSort,
   type ObligationStatusFilter,
 } from '@/server/queries'
 import { OBLIGATION_LABELS, RULES } from '@/rules'
@@ -15,9 +17,11 @@ import {
   EmptyState,
   PageHeader,
   StatusPill,
+  SortableTh,
   Table,
   Td,
   Th,
+  type SortDirection,
   type Status,
 } from '@/components/ui'
 import type { ObligationType } from '@/rules'
@@ -30,6 +34,8 @@ const STATUS_OPTIONS = [
   { value: 'UPCOMING', label: 'Upcoming' },
   { value: 'COMPLETED', label: 'Filed' },
 ]
+
+const SORTABLE: DeadlineSort[] = ['carrier', 'type', 'period', 'due', 'status']
 
 /** Comma-separated query values, e.g. `?status=DUE,OVERDUE`. */
 function parseList(value: string | undefined): string[] {
@@ -50,19 +56,28 @@ export default async function DeadlinesPage({
   const statuses = parseList(sp.status) as ObligationStatusFilter[]
   const types = parseList(sp.type) as ObligationType[]
   const states = parseList(sp.state)
+  const carriers = parseList(sp.carrier)
+
+  // Fall back rather than trust the query string — sort keys reach Prisma directly.
+  const sort: DeadlineSort = SORTABLE.includes(sp.sort as DeadlineSort)
+    ? (sp.sort as DeadlineSort)
+    : 'due'
+  const dir: SortDirection = sp.dir === 'desc' ? 'desc' : 'asc'
 
   const filters: DeadlineFilters = {
     statuses,
     types,
     states,
+    carriers,
     uncoveredOnly: sp.uncovered === '1',
     blockedOnly: sp.blocked === '1',
   }
 
-  const [rows, total, statesInBook] = await Promise.all([
-    getDeadlines(filters),
+  const [rows, total, statesInBook, carriersInBook] = await Promise.all([
+    getDeadlines(filters, sort, dir),
     getDeadlineCount(filters),
     getStatesInBook(),
+    getCarriersInBook(),
   ])
   const asOf = new Date()
   const truncated = rows.length < total
@@ -71,8 +86,11 @@ export default async function DeadlinesPage({
     statuses.length +
     types.length +
     states.length +
+    carriers.length +
     (filters.uncoveredOnly ? 1 : 0) +
     (filters.blockedOnly ? 1 : 0)
+
+  const sortProps = { activeSort: sort, activeDir: dir, params: sp, basePath: '/deadlines' }
 
   return (
     <>
@@ -114,7 +132,15 @@ export default async function DeadlinesPage({
             options={statesInBook.map((s) => ({ value: s, label: s }))}
             selected={states}
             currentParams={sp}
-            width="w-40"
+            width="w-36"
+          />
+          <MultiSelect
+            label="Carrier"
+            paramName="carrier"
+            options={carriersInBook.map((c) => ({ value: c.dotNumber, label: c.legalName }))}
+            selected={carriers}
+            currentParams={sp}
+            width="w-56"
           />
 
           <span className="mx-1 h-5 w-px bg-edge" aria-hidden />
@@ -149,13 +175,14 @@ export default async function DeadlinesPage({
           <Table>
             <thead>
               <tr>
-                <Th>Carrier</Th>
+                <SortableTh label="Carrier" column="carrier" {...sortProps} />
                 <Th>Subject</Th>
-                <Th>Obligation</Th>
-                <Th>Period</Th>
-                <Th>Due</Th>
-                <Th className="text-right">Left</Th>
-                <Th>Status</Th>
+                <SortableTh label="Obligation" column="type" {...sortProps} />
+                <SortableTh label="Period" column="period" {...sortProps} />
+                <SortableTh label="Due" column="due" {...sortProps} />
+                {/* Days remaining is a rendering of the due date, so it sorts on the same key. */}
+                <SortableTh label="Left" column="due" className="text-right" {...sortProps} />
+                <SortableTh label="Status" column="status" {...sortProps} />
                 <Th>Blocked by</Th>
                 <Th>Authority</Th>
               </tr>

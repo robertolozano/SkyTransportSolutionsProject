@@ -224,3 +224,83 @@ export function Th({ children, className = '' }: { children?: ReactNode; classNa
 export function Td({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <td className={`border-b border-edge px-4 py-2.5 text-[13px] ${className}`}>{children}</td>
 }
+
+export type SortDirection = 'asc' | 'desc'
+
+/**
+ * Sortable column header.
+ *
+ * Deliberately a plain link rather than a click handler: sort state belongs in the
+ * URL alongside the filters, so a sorted view is shareable and survives a refresh,
+ * and the whole control needs no client-side JavaScript.
+ */
+export function SortableTh({
+  label,
+  column,
+  activeSort,
+  activeDir,
+  params,
+  basePath,
+  className = '',
+  defaultDir = 'asc',
+}: {
+  label: string
+  column: string
+  activeSort: string
+  activeDir: SortDirection
+  params: Record<string, string | undefined>
+  basePath: string
+  className?: string
+  /** Direction applied on first click. Dates read best ascending, counts descending. */
+  defaultDir?: SortDirection
+}) {
+  const isActive = activeSort === column
+  const nextDir: SortDirection = isActive ? (activeDir === 'asc' ? 'desc' : 'asc') : defaultDir
+
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value && key !== 'sort' && key !== 'dir') query.set(key, value)
+  }
+  query.set('sort', column)
+  query.set('dir', nextDir)
+
+  const alignRight = className.includes('text-right')
+
+  return (
+    <th
+      className={`border-b border-edge px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide ${
+        isActive ? 'text-ink' : 'text-ink-faint'
+      } ${className}`}
+      aria-sort={isActive ? (activeDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <Link
+        href={`${basePath}?${query.toString()}`}
+        scroll={false}
+        className={`group inline-flex items-center gap-1 transition-colors hover:text-ink ${
+          alignRight ? 'flex-row-reverse' : ''
+        }`}
+      >
+        {label}
+        <SortArrow active={isActive} direction={activeDir} />
+      </Link>
+    </th>
+  )
+}
+
+function SortArrow({ active, direction }: { active: boolean; direction: SortDirection }) {
+  return (
+    <svg
+      width="8"
+      height="10"
+      viewBox="0 0 8 10"
+      fill="none"
+      aria-hidden
+      className={active ? 'text-ink' : 'text-transparent group-hover:text-ink-faint'}
+    >
+      <path
+        d={direction === 'asc' && active ? 'M4 1L7 5H1L4 1Z' : 'M4 9L1 5H7L4 9Z'}
+        fill="currentColor"
+      />
+    </svg>
+  )
+}

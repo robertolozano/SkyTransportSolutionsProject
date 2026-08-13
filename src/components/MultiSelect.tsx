@@ -33,7 +33,14 @@ export function MultiSelect({
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // A forty-carrier list is unusable as a plain scroll, so long lists get a filter.
+  const searchable = options.length > 12
+  const visible = searchable
+    ? options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : options
 
   // Close on outside click or Escape — a filter panel should never trap the user.
   useEffect(() => {
@@ -118,9 +125,26 @@ export function MultiSelect({
         <div
           role="listbox"
           aria-multiselectable
-          className="absolute left-0 z-20 mt-1 max-h-80 w-max min-w-full overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"
+          className="absolute left-0 z-20 mt-1 flex max-h-80 w-max min-w-full max-w-[22rem] flex-col rounded-md border border-edge bg-surface py-1 shadow-lg"
         >
-          {options.map((option) => {
+          {searchable && (
+            <div className="border-b border-edge px-2 pb-1.5">
+              <input
+                autoFocus
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`Search ${label.toLowerCase()}…`}
+                className="w-full rounded border border-edge-strong bg-surface px-2 py-1 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-brand"
+              />
+            </div>
+          )}
+
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {visible.length === 0 && (
+              <div className="px-3 py-2 text-[13px] text-ink-faint">No matches</div>
+            )}
+            {visible.map((option) => {
             const checked = selected.includes(option.value)
             return (
               <button
@@ -148,13 +172,14 @@ export function MultiSelect({
                     </svg>
                   )}
                 </span>
-                <span className="whitespace-nowrap">{option.label}</span>
+                <span className="min-w-0 truncate">{option.label}</span>
               </button>
-            )
-          })}
+              )
+            })}
+          </div>
 
           {count > 0 && (
-            <div className="mt-1 border-t border-edge pt-1">
+            <div className="mt-1 shrink-0 border-t border-edge pt-1">
               <button
                 type="button"
                 onClick={() => apply([])}

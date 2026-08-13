@@ -349,22 +349,59 @@ export interface DeadlineFilters {
   types?: ObligationType[]
   statuses?: ObligationStatusFilter[]
   states?: string[]
+  /** Carrier USDOT numbers. */
+  carriers?: string[]
   uncoveredOnly?: boolean
   blockedOnly?: boolean
 }
 
+export type DeadlineSort = 'carrier' | 'type' | 'period' | 'due' | 'status'
+
 function deadlineWhere(filters: DeadlineFilters): Prisma.ObligationWhereInput {
-  const { types, statuses, states } = filters
+  const { types, statuses, states, carriers } = filters
+
+  // State and carrier both constrain the same relation, so they must be merged into
+  // one `carrier` clause — spreading two would silently drop the first.
+  const carrierWhere: Prisma.CarrierWhereInput = {}
+  if (states?.length) carrierWhere.state = { in: states }
+  if (carriers?.length) carrierWhere.dotNumber = { in: carriers }
+
   return {
     ...(types?.length ? { type: { in: types } } : {}),
     // With no explicit status chosen, completed filings are hidden — the default
     // question this page answers is "what is still outstanding".
     ...(statuses?.length ? { status: { in: statuses } } : { status: { not: 'COMPLETED' } }),
     ...(filters.uncoveredOnly ? { coveredByTier: false } : {}),
-    ...(states?.length ? { carrier: { state: { in: states } } } : {}),
+    ...(Object.keys(carrierWhere).length > 0 ? { carrier: carrierWhere } : {}),
     ...(filters.blockedOnly
       ? { blockedBy: { some: { blocker: { status: { not: 'COMPLETED' } } } } }
       : {}),
+  }
+}
+
+/**
+ * Sort order, with a deadline tiebreak on every column.
+ *
+ * Without a secondary key, rows sharing a value (every obligation of the same type,
+ * say) come back in whatever order the planner chooses, which reshuffles between
+ * requests and makes the table feel unstable.
+ */
+function deadlineOrderBy(
+  sort: DeadlineSort,
+  dir: 'asc' | 'desc',
+): Prisma.ObligationOrderByWithRelationInput[] {
+  switch (sort) {
+    case 'carrier':
+      return [{ carrier: { legalName: dir } }, { dueOn: 'asc' }]
+    case 'type':
+      return [{ type: dir }, { dueOn: 'asc' }]
+    case 'period':
+      return [{ periodLabel: dir }, { dueOn: 'asc' }]
+    case 'status':
+      return [{ status: dir }, { dueOn: 'asc' }]
+    case 'due':
+    default:
+      return [{ dueOn: dir }, { id: 'asc' }]
   }
 }
 
@@ -373,16 +410,21 @@ export async function getDeadlineCount(filters: DeadlineFilters): Promise<number
   return prisma.obligation.count({ where: deadlineWhere(filters) })
 }
 
-export async function getDeadlines(filters: DeadlineFilters, limit = 200) {
+export async function getDeadlines(
+  filters: DeadlineFilters,
+  sort: DeadlineSort = 'due',
+  dir: 'asc' | 'desc' = 'asc',
+  limit = 200,
+) {
   return prisma.obligation.findMany({
     where: deadlineWhere(filters),
+    orderBy: deadlineOrderBy(sort, dir),
     include: {
       carrier: true,
       truck: true,
       driver: true,
       blockedBy: { include: { blocker: true } },
     },
-    orderBy: { dueOn: 'asc' },
     take: limit,
   })
 }
@@ -394,6 +436,14 @@ export async function getStatesInBook(): Promise<string[]> {
     orderBy: { state: 'asc' },
   })
   return rows.map((r) => r.state)
+}
+
+/** Carrier options for the filter, keyed by USDOT number so the URL stays readable. */
+export async function getCarriersInBook(): Promise<Array<{ dotNumber: string; legalName: string }>> {
+  return prisma.carrier.findMany({
+    select: { dotNumber: true, legalName: true },
+    orderBy: { legalName: 'asc' },
+  })
 }
 
 export async function getLastRecompute() {
