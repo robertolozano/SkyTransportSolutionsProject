@@ -53,10 +53,19 @@ export function AppShell({
 }) {
   const pathname = usePathname()
 
+  /*
+    Two independent scroll regions rather than one long page.
+
+    The sidebar footer holds the view toggle, so in a single-scroll layout it sat
+    below a 200-row table and you had to scroll the whole page to reach it. Here
+    the shell is viewport-height, the nav scrolls on its own if it ever outgrows
+    the sidebar, and the footer stays pinned. `overscroll-contain` stops a scroll
+    that reaches the end of one pane from chaining to the other.
+  */
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       <aside className="hidden w-56 shrink-0 flex-col border-r border-edge bg-surface lg:flex">
-        <div className="border-b border-edge px-5 py-4">
+        <div className="shrink-0 border-b border-edge px-5 py-4">
           <Link href="/dashboard" className="block">
             <div className="text-[15px] font-semibold tracking-tight text-ink">
               Compliance Radar
@@ -65,7 +74,7 @@ export function AppShell({
           </Link>
         </div>
 
-        <nav className="flex-1 px-3 py-4">
+        <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4">
           {NAV.map((group) => (
             <div key={group.label ?? 'root'} className="mb-5">
               {group.label && (
@@ -97,7 +106,7 @@ export function AppShell({
           ))}
         </nav>
 
-        <div className="border-t border-edge px-5 py-4">
+        <div className="shrink-0 border-t border-edge px-5 py-4">
           <ViewToggle clientToken={clientToken ?? null} />
           <p className="mt-2.5 text-[11px] leading-relaxed text-ink-faint">
             Demo data. The client view is a
@@ -109,7 +118,18 @@ export function AppShell({
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Below `lg` the sidebar is hidden, which would leave the toggle
+            unreachable — so it gets a compact bar of its own. */}
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-edge bg-surface px-5 py-2.5 lg:hidden">
+          <Link href="/dashboard" className="text-[14px] font-semibold tracking-tight text-ink">
+            Compliance Radar
+          </Link>
+          <ViewToggle clientToken={clientToken ?? null} />
+        </div>
+
+        <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</main>
+      </div>
     </div>
   )
 }

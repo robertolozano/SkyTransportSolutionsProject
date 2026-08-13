@@ -21,7 +21,7 @@ export function PortalNav({ token, needsAction }: { token: string; needsAction: 
   ]
 
   return (
-    <nav className="flex gap-1 border-b border-edge">
+    <nav className="flex gap-1">
       {tabs.map((tab) => {
         const active = pathname === tab.href
         return (
