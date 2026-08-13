@@ -84,6 +84,9 @@ enum DocumentStatus {
 model Carrier {
   id            String        @id @default(cuid())
   dotNumber     String        @unique
+  /// Opaque token for the client-facing view. Unguessable, no login required —
+  /// the audience is a driver at a truck stop, not someone managing a password.
+  portalToken   String?       @unique
   mcNumber      String?
   legalName     String
   dba           String?

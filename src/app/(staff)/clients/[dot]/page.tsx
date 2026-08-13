@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { getCarrierByDot } from '@/server/queries'
+import { getCarrierByDot, getFilingHistory } from '@/server/queries'
 import { assessSubject } from '@/server/assess'
 import { OBLIGATION_LABELS } from '@/rules'
 import { daysBetween, formatDay } from '@/rules/dates'
@@ -33,6 +33,7 @@ export default async function CarrierPage({ params }: { params: Promise<{ dot: s
   const asOf = new Date()
   const open = carrier.obligations.filter((o) => o.status !== 'COMPLETED')
   const assessment = assessSubject(carrier.obligations, asOf)
+  const filings = await getFilingHistory(carrier.id)
 
   const activeTrucks = carrier.trucks.filter((t) => !t.retiredAt)
   const membership = annualMembershipValue(carrier.tier, activeTrucks.length)
@@ -223,6 +224,7 @@ export default async function CarrierPage({ params }: { params: Promise<{ dot: s
                 <Th>Status</Th>
                 <Th>Plan</Th>
                 <Th>Authority</Th>
+                <Th></Th>
               </tr>
             </thead>
             <tbody>
@@ -268,10 +270,70 @@ export default async function CarrierPage({ params }: { params: Promise<{ dot: s
                   <Td className="max-w-[240px] text-[11px] leading-snug text-ink-faint">
                     {o.citation}
                   </Td>
+                  <Td>
+                    {o.status !== 'COMPLETED' && (
+                      <Link
+                        href={`/packet/${o.id}`}
+                        className="text-[12px] text-brand hover:underline"
+                      >
+                        Packet
+                      </Link>
+                    )}
+                  </Td>
                 </tr>
               ))}
             </tbody>
           </Table>
+        </Section>
+
+        <Section
+          title="Filing history"
+          description="Every submission on record — what was sent, when, by whom, and the confirmation reference. Answers “did we actually file that?” without a portal search."
+        >
+          {filings.length === 0 ? (
+            <EmptyState message="No filings recorded for this carrier yet." />
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Filed</Th>
+                  <Th>Obligation</Th>
+                  <Th>Subject</Th>
+                  <Th>Period</Th>
+                  <Th>Agency</Th>
+                  <Th>Filed by</Th>
+                  <Th>Confirmation</Th>
+                  <Th className="text-right">Ahead of deadline</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {filings.slice(0, 40).map((f) => (
+                  <tr key={f.id} className="hover:bg-canvas">
+                    <Td>
+                      <DateText date={f.submittedAt} />
+                    </Td>
+                    <Td className="text-ink">{OBLIGATION_LABELS[f.obligation.type]}</Td>
+                    <Td className="text-ink-soft">
+                      {f.obligation.truck ? (
+                        `Unit ${f.obligation.truck.unitNumber}`
+                      ) : f.obligation.driver ? (
+                        `${f.obligation.driver.firstName} ${f.obligation.driver.lastName}`
+                      ) : (
+                        <span className="text-ink-faint">Carrier</span>
+                      )}
+                    </Td>
+                    <Td className="text-ink-faint">{f.obligation.periodLabel}</Td>
+                    <Td className="text-ink-soft">{f.agency}</Td>
+                    <Td className="numeric text-ink-soft">{f.submittedBy}</Td>
+                    <Td className="numeric text-[11px] text-ink-faint">{f.confirmationRef}</Td>
+                    <Td className="numeric text-right text-ink-soft">
+                      {daysBetween(f.submittedAt, f.obligation.dueOn)}d
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
         </Section>
       </div>
     </>

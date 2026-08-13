@@ -9,10 +9,11 @@
     "lint": "eslint",
     "db:seed": "tsx prisma/seed.ts",
     "db:recompute": "tsx prisma/recompute.ts",
-    "db:reset": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts && tsx prisma/recompute.ts && tsx prisma/backfill.ts",
+    "db:reset": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts && tsx prisma/recompute.ts && tsx prisma/backfill.ts && tsx prisma/requests.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:backfill": "tsx prisma/backfill.ts"
+    "db:backfill": "tsx prisma/backfill.ts",
+    "db:requests": "tsx prisma/requests.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

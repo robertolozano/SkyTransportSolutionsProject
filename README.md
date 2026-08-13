@@ -172,9 +172,33 @@ the graph can never drift from the engine that produces the obligations.
 | UCR registration | carrier | opens Oct 1, due Dec 31 |
 | Medical certificate | driver | read from the certificate, not assumed |
 
-**9 pages** — dashboard work queue, client book, carrier detail, truck detail with the
-dependency chain and what-if simulator, deadline browser with filters, rules library,
-coverage gaps, seasonal calendar, and a forward-running requirement advisor.
+**16 routes**, split into two audiences.
+
+*Staff console* — dashboard work queue · client book · carrier detail with filing history ·
+truck detail with the dependency chain, backward-scheduled action plan, and what-if simulator ·
+deadline browser with filters · document requests with the escalation ladder · seasonal calendar
+· planning with pull-forward and capacity · coverage gaps · rules library · filing packets ·
+forward-running requirement advisor.
+
+*Client-facing* — a tokenised assurance page and a subscribable `.ics` calendar feed. These sit
+in a separate route group so an owner-operator opening a link from a text message is not handed
+an operations console.
+
+**Beyond deriving deadlines, the engine also:**
+
+- **Schedules backwards.** A due date is not a start date. Each step is bound by whichever comes
+  first — its own deadline, or the start of the step depending on it — after handling time and a
+  safety buffer. The demo truck reads *behind schedule*: its emissions booking should already
+  have begun.
+- **Pulls work forward.** A large share of compliance work can legally be done months early, so
+  moving it into the troughs flattens the August and December peaks without adding a person.
+  Every move respects the obligation's legal start window, and a test proves no work is invented
+  or lost.
+- **Plans document collection.** Replacement documents are requested 60 days before expiry, then
+  chased on a fixed four-rung ladder — texts first, because the client is driving, with staff
+  time spent only after the cheap channels fail.
+- **Assembles filing packets.** Every field an agency form needs, pulled from the master record,
+  with a readiness banner naming exactly what blocks submission.
 
 ## What is not implemented
 
@@ -192,6 +216,16 @@ hides its own uncertainty is worse than one that admits it:
   apportionment and fee brackets are out of scope.
 - **No partial-period proration** for vehicles first used mid-year.
 - **Synthetic data.** 40 carriers generated with a fixed-seed PRNG. No live FMCSA lookup.
+- **Messages are not sent.** The chase ladder computes what should go out and when; no SMS or
+  email provider is connected. Stated on `/requests`.
+- **Filings are not submitted.** Packets are assembled; a person still files them and records
+  the confirmation. Stated on `/packet/[id]`.
+- **Capacity assumptions are estimates, not measurements.** Staff count, productive hours, and
+  per-filing handling times are printed in full on `/planning` so the utilisation figures are
+  read as a shape rather than a number.
+- **No cross-portal reconciliation and no document intake.** Both are described in the feature
+  plan; the first needs live agency data, the second was the deliberate either/or that the rules
+  core won.
 
 ## Demo path
 
@@ -200,11 +234,26 @@ hides its own uncertainty is worse than one that admits it:
 2. **`/clients`** — the whole book sorted by out-of-service date. Open *Altamont Freight
    Systems*.
 3. **`/trucks/…` unit 101** — the headline date, then the chain: emissions → tax → plate.
-   Drag the what-if slider until the chain breaks and the cards turn red.
+   Drag the what-if slider until the chain breaks and the cards turn red. Scroll to the action
+   plan: it already reads *behind schedule*, because the emissions booking needed to start
+   before today.
 4. **`/rules`** — where the dates came from, with citations, and what still needs review.
-5. **`/opportunities`** — the same computation read as revenue.
-6. **`/onboarding`** — the engine run forward. Toggle "crossing state lines" off and watch
+5. **`/planning`** — the seasonal wave, then the same work pulled forward into the troughs, with
+   the capacity assumptions printed rather than hidden.
+6. **`/requests`** — proactive document collection and the escalation ladder, with a live count
+   of how many requests sit at each rung.
+7. **`/opportunities`** — the same computation read as revenue.
+8. **`/onboarding`** — the engine run forward. Toggle "crossing state lines" off and watch
    half the requirements disappear and the price drop from $1,200 to $975.
+9. **`/c/<token>`** — the client's view. Same data, no jargon, no dashboard. Then subscribe to
+   the calendar feed.
+
+Get a portal token with:
+
+```bash
+docker exec compliance-radar-db psql -U radar -d compliance_radar -tA \
+  -c "SELECT \"portalToken\" FROM \"Carrier\" WHERE \"dotNumber\"='3421569';"
+```
 
 ---
 
@@ -212,24 +261,30 @@ hides its own uncertainty is worse than one that admits it:
 
 ```
 prisma/
-  schema.prisma        10 tables
+  schema.prisma        10 tables, 3 migrations
   seed.ts              deterministic generator + hand-tuned failure cases
   recompute.ts         materializer CLI
   backfill.ts          historical filing records
+  requests.ts          document request generation
 src/
-  rules/               PURE — the asset
+  rules/               PURE — the asset. No Prisma, React, or HTTP imports.
     types.ts           contracts, tier coverage
     dates.ts           UTC calendar arithmetic
     mcs150.ts ifta.ts hvut2290.ts carbCtc.ts irpRenewal.ts ucr.ts medicalCard.ts
     graph.ts           dependency edges, out-of-service assessment
+    schedule.ts        backward scheduling, pull-forward, capacity
+    chase.ts           document requests and the escalation ladder
     requirements.ts    the engine run forward
     pricing.ts         tier coverage and revenue
-    *.test.ts          45 tests
+    *.test.ts          69 tests
   server/
     db.ts              Prisma singleton
-    queries.ts         Prisma reads + 5 raw SQL aggregates
+    queries.ts         Prisma reads + raw SQL aggregates
     materialize.ts     engine → database
     assess.ts          persisted rows → pure graph module
+    ics.ts             RFC 5545 calendar generation
   components/          AppShell, UI primitives, dependency chain, what-if
-  app/                 9 routes
+  app/
+    (staff)/           operations console — 12 routes
+    c/[token]/         client-facing view + .ics feed
 ```

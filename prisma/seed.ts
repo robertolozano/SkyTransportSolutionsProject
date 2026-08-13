@@ -66,6 +66,14 @@ const TX_CITIES: Array<[string, string]> = [
   ['Lewisville', '75057'], ['Dallas', '75201'], ['Houston', '77002'], ['Laredo', '78040'], ['El Paso', '79901'],
 ]
 
+/** Opaque, unguessable token for the client-facing view. */
+function portalToken(): string {
+  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
+  let out = ''
+  for (let i = 0; i < 22; i++) out += alphabet[Math.floor(rand() * alphabet.length)]
+  return out
+}
+
 function vin(i: number): string {
   const chars = '0123456789ABCDEFGHJKLMNPRSTUVWXYZ'
   let out = '1FUJ'
@@ -249,6 +257,7 @@ async function main() {
     const carrier = await prisma.carrier.create({
       data: {
         dotNumber: plan.dotNumber,
+        portalToken: portalToken(),
         mcNumber: plan.operationType === 'INTERSTATE' ? `MC${randInt(200_000, 999_999)}` : null,
         legalName: plan.legalName,
         ein: `${randInt(10, 99)}-${randInt(1_000_000, 9_999_999)}`,

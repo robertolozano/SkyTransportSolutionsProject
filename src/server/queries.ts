@@ -383,3 +383,133 @@ export async function getStatesInBook(): Promise<string[]> {
 export async function getLastRecompute() {
   return prisma.recomputeRun.findFirst({ orderBy: { startedAt: 'desc' } })
 }
+
+// --- 7. client portal --------------------------------------------------------
+
+/** Look up a carrier by its opaque portal token. No login; the token is the credential. */
+export async function getCarrierByToken(token: string) {
+  return prisma.carrier.findUnique({
+    where: { portalToken: token },
+    include: {
+      trucks: { where: { retiredAt: null }, orderBy: { unitNumber: 'asc' } },
+      drivers: { where: { terminatedAt: null }, orderBy: { lastName: 'asc' } },
+      obligations: {
+        orderBy: { dueOn: 'asc' },
+        include: { truck: true, driver: true },
+      },
+      documents: { orderBy: { requestedAt: 'desc' } },
+    },
+  })
+}
+
+// --- 8. document requests ----------------------------------------------------
+
+export async function getOutstandingRequests() {
+  return prisma.document.findMany({
+    where: { status: 'REQUESTED' },
+    include: {
+      carrier: true,
+      credential: { include: { truck: true, driver: true } },
+    },
+    orderBy: { expiresOn: 'asc' },
+  })
+}
+
+export interface RequestSummary {
+  outstanding: number
+  received: number
+  expiringUnrequested: number
+  medianDaysToReturn: number | null
+}
+
+export async function getRequestSummary(): Promise<RequestSummary> {
+  const [row] = await prisma.$queryRaw<
+    Array<{
+      outstanding: number
+      received: number
+      expiringUnrequested: number
+      medianDaysToReturn: number | null
+    }>
+  >`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'REQUESTED')::int AS outstanding,
+      COUNT(*) FILTER (WHERE status = 'RECEIVED')::int  AS received,
+      (SELECT COUNT(*)::int
+         FROM "Credential" c
+        WHERE c."expiresOn" IS NOT NULL
+          AND c."expiresOn" <= CURRENT_DATE + INTERVAL '60 days'
+          AND NOT EXISTS (SELECT 1 FROM "Document" d WHERE d."credentialId" = c.id)
+      ) AS "expiringUnrequested",
+      PERCENTILE_CONT(0.5) WITHIN GROUP (
+        ORDER BY EXTRACT(EPOCH FROM ("uploadedAt" - "requestedAt")) / 86400
+      ) FILTER (WHERE "uploadedAt" IS NOT NULL) AS "medianDaysToReturn"
+    FROM "Document"
+  `
+  return row
+}
+
+// --- 9. planning -------------------------------------------------------------
+
+export interface PlannableObligation {
+  id: string
+  type: ObligationType
+  carrierId: string
+  dueOn: Date
+  earliestStart: Date | null
+}
+
+/** Open obligations in the projection window, with the earliest date work may begin. */
+export async function getPlannableObligations(): Promise<PlannableObligation[]> {
+  return prisma.$queryRaw<PlannableObligation[]>`
+    SELECT id, type::text AS type, "carrierId", "dueOn", "earliestStart"
+    FROM "Obligation"
+    WHERE status <> 'COMPLETED'
+      AND "dueOn" >= DATE_TRUNC('month', CURRENT_DATE)
+      AND "dueOn" <  DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '12 months'
+    ORDER BY "dueOn"
+  `
+}
+
+export interface MonthTypeCount {
+  month: Date
+  type: ObligationType
+  count: number
+}
+
+/** Monthly volume split by type — the input to the capacity model. */
+export async function getMonthlyTypeCounts(): Promise<MonthTypeCount[]> {
+  return prisma.$queryRaw<MonthTypeCount[]>`
+    SELECT DATE_TRUNC('month', "dueOn")::date AS month,
+           type::text AS type,
+           COUNT(*)::int AS count
+    FROM "Obligation"
+    WHERE status <> 'COMPLETED'
+      AND "dueOn" >= DATE_TRUNC('month', CURRENT_DATE)
+      AND "dueOn" <  DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '12 months'
+    GROUP BY 1, 2
+    ORDER BY 1, 2
+  `
+}
+
+// --- 10. filing history ------------------------------------------------------
+
+export async function getFilingHistory(carrierId: string) {
+  return prisma.filing.findMany({
+    where: { obligation: { carrierId } },
+    include: { obligation: { include: { truck: true, driver: true } } },
+    orderBy: { submittedAt: 'desc' },
+  })
+}
+
+/** One obligation with everything needed to assemble a filing packet. */
+export async function getObligationForPacket(id: string) {
+  return prisma.obligation.findUnique({
+    where: { id },
+    include: {
+      carrier: { include: { credentials: true } },
+      truck: { include: { credentials: true } },
+      driver: { include: { credentials: true } },
+      blockedBy: { include: { blocker: true } },
+    },
+  })
+}

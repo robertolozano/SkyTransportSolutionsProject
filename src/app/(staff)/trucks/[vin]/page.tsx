@@ -6,6 +6,7 @@ import { WhatIfChain, type WireObligation } from '@/components/WhatIfChain'
 import { OBLIGATION_LABELS } from '@/rules'
 import { daysBetween, formatDay } from '@/rules/dates'
 import { riskLevel } from '@/rules/graph'
+import { backwardSchedule } from '@/rules/schedule'
 import { ESTIMATED_DAILY_REVENUE_PER_TRUCK } from '@/rules/pricing'
 import {
   Card,
@@ -38,6 +39,10 @@ export default async function TruckPage({ params }: { params: Promise<{ vin: str
   const asOf = new Date()
   const assessment = assessSubject(truck.obligations, asOf)
   const open = truck.obligations.filter((o) => o.status !== 'COMPLETED')
+
+  // Turn the chain into dated work: a due date is not a start date.
+  const earliestStarts = new Map(truck.obligations.map((o) => [o.id, o.earliestStart]))
+  const plan = backwardSchedule(assessment.chain, asOf, earliestStarts)
 
   const wire: WireObligation[] = truck.obligations.map((o) => ({
     id: o.id,
@@ -128,6 +133,71 @@ export default async function TruckPage({ params }: { params: Promise<{ vin: str
         <div className="mb-8">
           <WhatIfChain obligations={wire} asOfIso={asOf.toISOString()} />
         </div>
+
+        {plan.steps.length > 0 && (
+          <Section
+            title="Action plan"
+            description="Working backwards from the deadline through handling time and prerequisites. Each step must clear before the next one can start."
+          >
+            {plan.hasLateStep && (
+              <div className="mb-3 rounded-lg border border-critical-edge bg-critical-soft px-4 py-3">
+                <div className="text-[13px] font-semibold text-critical">
+                  Behind schedule — work should already have started.
+                </div>
+                <p className="mt-1 text-[13px] leading-relaxed text-ink-soft">
+                  The start-by dates below account for handling time and a {''}
+                  five-day buffer. A step marked late is not yet impossible, but the buffer is
+                  gone.
+                </p>
+              </div>
+            )}
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Step</Th>
+                  <Th>Obligation</Th>
+                  <Th>Start by</Th>
+                  <Th className="text-right">Days</Th>
+                  <Th className="text-right">Handling</Th>
+                  <Th>Earliest legal start</Th>
+                  <Th>Due</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {plan.steps.map((step, i) => (
+                  <tr key={step.obligation.id} className="hover:bg-canvas">
+                    <Td className="numeric text-ink-faint">{i + 1}</Td>
+                    <Td className="text-ink">{OBLIGATION_LABELS[step.obligation.type]}</Td>
+                    <Td>
+                      <span
+                        className={`numeric text-[13px] font-medium ${
+                          step.late ? 'text-critical' : 'text-ink'
+                        }`}
+                      >
+                        {formatDay(step.startBy)}
+                      </span>
+                      {step.impossible && (
+                        <span className="ml-2 text-[11px] font-medium text-critical">
+                          before window opens
+                        </span>
+                      )}
+                    </Td>
+                    <Td className="text-right">
+                      <Countdown days={daysBetween(asOf, step.startBy)} />
+                    </Td>
+                    <Td className="numeric text-right text-ink-soft">{step.handlingDays}d</Td>
+                    <Td>
+                      <DateText date={step.earliestStart} />
+                    </Td>
+                    <Td>
+                      <DateText date={step.obligation.dueOn} />
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Section>
+        )}
 
         <Section title="Credentials held">
           <Table>

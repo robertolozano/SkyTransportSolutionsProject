@@ -20,6 +20,7 @@ const NAV: NavGroup[] = [
     label: 'Work',
     items: [
       { href: '/deadlines', label: 'Deadlines' },
+      { href: '/requests', label: 'Requests' },
       { href: '/calendar', label: 'Calendar' },
     ],
   },
@@ -33,6 +34,7 @@ const NAV: NavGroup[] = [
   {
     label: 'Insight',
     items: [
+      { href: '/planning', label: 'Planning' },
       { href: '/opportunities', label: 'Opportunities' },
       { href: '/rules', label: 'Rules' },
     ],
