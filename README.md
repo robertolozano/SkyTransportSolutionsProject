@@ -180,9 +180,19 @@ deadline browser with filters · document requests with the escalation ladder ·
 · planning with pull-forward and capacity · coverage gaps · rules library · filing packets ·
 forward-running requirement advisor.
 
-*Client-facing* — a tokenised assurance page and a subscribable `.ics` calendar feed. These sit
-in a separate route group so an owner-operator opening a link from a text message is not handed
-an operations console.
+*Client-facing* — a three-tab portal (overview · deadlines · documents) and a subscribable `.ics`
+calendar feed, reached by an unguessable token with no login. It sits in a separate route group
+so an owner-operator opening a link from a text message is not handed an operations console. A
+toggle in each shell switches between the two views for demo purposes.
+
+**Document capture and extraction.** On the documents tab, `capture="environment"` opens the rear
+camera directly — tap, photograph, done. The image is downscaled in the browser (a 4–12 MB camera
+shot becomes ~200 KB; on truck-stop signal that is the difference between the upload finishing and
+the driver giving up), stored outside `public/`, and read by Claude via vision with a JSON schema
+constraining the output. Extraction **proposes**; the staff `/scans` screen sets what was read
+against what the credential record says, and a person confirms. A misread expiry date would
+silently move a compliance deadline — which is the exact failure this product exists to prevent —
+so nothing writes back automatically.
 
 **Beyond deriving deadlines, the engine also:**
 
@@ -223,9 +233,19 @@ hides its own uncertainty is worse than one that admits it:
 - **Capacity assumptions are estimates, not measurements.** Staff count, productive hours, and
   per-filing handling times are printed in full on `/planning` so the utilisation figures are
   read as a shape rather than a number.
-- **No cross-portal reconciliation and no document intake.** Both are described in the feature
-  plan; the first needs live agency data, the second was the deliberate either/or that the rules
-  core won.
+- **No cross-portal reconciliation.** Needs live agency data.
+- **Extraction needs a key, and says so when it doesn't have one.** With no `ANTHROPIC_API_KEY`
+  set, uploads still store and still satisfy the request — they are marked *unavailable* and
+  queued for manual review. The `/scans` page states this in place rather than showing a
+  plausible-looking result. Set the key and the same uploads extract with no code change.
+- **Confirming an extraction does not write back yet.** The comparison against the credential
+  record is shown; applying a value and letting the rules engine recompute from it is the next
+  step.
+- **No authentication anywhere.** The client portal is protected only by an unguessable token,
+  and uploaded documents are served through a route handler — which is where a staff session
+  check belongs, and there isn't one.
+- **Uploads are stored on local disk** under `.uploads/`. The storage interface is a single file,
+  so swapping in object storage touches nothing above it.
 
 ## Demo path
 
@@ -245,8 +265,12 @@ hides its own uncertainty is worse than one that admits it:
 7. **`/opportunities`** — the same computation read as revenue.
 8. **`/onboarding`** — the engine run forward. Toggle "crossing state lines" off and watch
    half the requirements disappear and the price drop from $1,200 to $975.
-9. **`/c/<token>`** — the client's view. Same data, no jargon, no dashboard. Then subscribe to
-   the calendar feed.
+9. **Flip the toggle to Client** (bottom of the sidebar) — the same account, seen by the carrier.
+   Same data, no jargon, no dashboard. The Documents tab shows what Sky is waiting on; tap
+   **Take photo** and the capture → downscale → store → extract → review loop runs end to end.
+   Then subscribe to the calendar feed.
+10. **Back to Staff → `/scans`** — the other half of that loop: what was read from the image set
+    against what the record says, with mismatches called out for a person to adjudicate.
 
 Get a portal token with:
 

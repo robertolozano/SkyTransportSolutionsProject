@@ -24,9 +24,20 @@ function mulberry32(seed: number) {
 }
 const rand = mulberry32(884412)
 
+/**
+ * The showcase carrier always keeps its requests outstanding, so the client
+ * portal demonstrates the collection flow rather than an empty state.
+ */
+const SHOWCASE_DOT = '3421569'
+
 async function main() {
   const asOf = new Date()
   await prisma.document.deleteMany()
+
+  const showcase = await prisma.carrier.findUnique({
+    where: { dotNumber: SHOWCASE_DOT },
+    select: { id: true },
+  })
 
   const credentials = await prisma.credential.findMany({
     where: { expiresOn: { not: null } },
@@ -54,8 +65,10 @@ async function main() {
     const requestedAt = new Date(asOf)
     requestedAt.setUTCDate(requestedAt.getUTCDate() - daysAgo)
 
-    // Most clients do eventually send the document.
-    const hasArrived = rand() < 0.55
+    // Most clients do eventually send the document — except the showcase account,
+    // whose requests stay open so the portal has something to collect.
+    const isShowcase = showcase && plan.carrierId === showcase.id
+    const hasArrived = isShowcase ? false : rand() < 0.55
     const uploadedAt = hasArrived
       ? new Date(requestedAt.getTime() + Math.floor(rand() * 4 + 1) * 86_400_000)
       : null

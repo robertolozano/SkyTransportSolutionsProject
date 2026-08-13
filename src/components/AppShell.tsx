@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
+import { ViewToggle } from './ViewToggle'
 
 interface NavItem {
   href: string
@@ -21,6 +22,7 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/deadlines', label: 'Deadlines' },
       { href: '/requests', label: 'Requests' },
+      { href: '/scans', label: 'Scans' },
       { href: '/calendar', label: 'Calendar' },
     ],
   },
@@ -41,7 +43,14 @@ const NAV: NavGroup[] = [
   },
 ]
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  clientToken,
+}: {
+  children: ReactNode
+  /** Demo carrier whose client view the toggle jumps to. */
+  clientToken?: string | null
+}) {
   const pathname = usePathname()
 
   return (
@@ -88,10 +97,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="border-t border-edge px-5 py-3 text-[11px] leading-relaxed text-ink-faint">
-          Demo data.
-          <br />
-          Rules carry source citations.
+        <div className="border-t border-edge px-5 py-4">
+          <ViewToggle clientToken={clientToken ?? null} />
+          <p className="mt-2.5 text-[11px] leading-relaxed text-ink-faint">
+            Demo data. The client view is a
+            <br />
+            separate audience, shown here for
+            <br />
+            comparison.
+          </p>
         </div>
       </aside>
 

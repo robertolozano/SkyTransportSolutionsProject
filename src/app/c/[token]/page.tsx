@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getCarrierByToken } from '@/server/queries'
 import { assessSubject } from '@/server/assess'
@@ -8,15 +9,11 @@ import { CalendarSubscribe } from './CalendarSubscribe'
 export const dynamic = 'force-dynamic'
 
 /**
- * Client assurance view.
+ * Overview.
  *
- * Deliberately not a dashboard. The reader is an owner-operator who opened a link
- * from a text message, and the only questions they have are "am I covered", "what
- * happens next", and "do you need anything from me". Everything else — risk scores,
- * revenue exposure, rule citations — belongs on the staff side.
- *
- * It exists because the work Sky Transport Solutions does is invisible when it goes
- * well, and invisible work is what clients cancel.
+ * Answers the only three questions a carrier actually has, in order: am I
+ * covered, do you need anything from me, and what happens next. Risk scores,
+ * revenue exposure, and rule citations all stay on the staff side.
  */
 export default async function ClientPortalPage({
   params,
@@ -41,18 +38,7 @@ export default async function ClientPortalPage({
   const allClear = overdue.length === 0 && pendingDocs.length === 0
 
   return (
-    <main className="mx-auto max-w-2xl px-5 py-10">
-      <header className="mb-8">
-        <div className="text-[12px] font-medium uppercase tracking-wider text-ink-faint">
-          Sky Transport Solutions
-        </div>
-        <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-ink">
-          {carrier.legalName}
-        </h1>
-        <div className="numeric mt-1 text-[13px] text-ink-faint">DOT {carrier.dotNumber}</div>
-      </header>
-
-      {/* The answer to the only question that matters. */}
+    <>
       <section
         className={`mb-6 rounded-xl border px-6 py-6 ${
           allClear
@@ -67,7 +53,7 @@ export default async function ClientPortalPage({
             ? "You're covered."
             : overdue.length > 0
               ? 'Something needs attention.'
-              : 'We need one thing from you.'}
+              : `We need ${pendingDocs.length === 1 ? 'one thing' : 'a few things'} from you.`}
         </div>
         <p className="mt-2 text-[15px] leading-relaxed text-ink-soft">
           {allClear ? (
@@ -87,40 +73,20 @@ export default async function ClientPortalPage({
           ) : (
             <>
               Everything is on schedule, but we&apos;re waiting on {pendingDocs.length}{' '}
-              {pendingDocs.length === 1 ? 'document' : 'documents'} from you before we can file.
+              {pendingDocs.length === 1 ? 'document' : 'documents'} before we can file.
             </>
           )}
         </p>
-      </section>
 
-      {pendingDocs.length > 0 && (
-        <section className="mb-6 rounded-xl border border-edge bg-surface px-6 py-5">
-          <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-soft">
-            What we need from you
-          </h2>
-          <ul className="mt-3 space-y-3">
-            {pendingDocs.map((doc) => (
-              <li key={doc.id} className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-[15px] text-ink">{doc.type}</div>
-                  {doc.expiresOn && (
-                    <div className="mt-0.5 text-[13px] text-ink-faint">
-                      Current one expires {formatDay(doc.expiresOn)}
-                    </div>
-                  )}
-                </div>
-                <span className="shrink-0 rounded-md bg-brand px-3 py-1.5 text-[13px] font-medium text-white">
-                  Send photo
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-4 text-[13px] leading-relaxed text-ink-faint">
-            Take a photo with your phone — no app or login needed. Send it and we&apos;ll handle the
-            rest.
-          </p>
-        </section>
-      )}
+        {pendingDocs.length > 0 && (
+          <Link
+            href={`/c/${token}/documents`}
+            className="mt-4 inline-block rounded-md bg-brand px-4 py-2 text-[14px] font-medium text-white transition-opacity hover:opacity-90"
+          >
+            Send {pendingDocs.length === 1 ? 'it' : 'them'} now
+          </Link>
+        )}
+      </section>
 
       {next && (
         <section className="mb-6 rounded-xl border border-edge bg-surface px-6 py-5">
@@ -148,48 +114,14 @@ export default async function ClientPortalPage({
               </div>
             </div>
           </div>
+          <Link
+            href={`/c/${token}/deadlines`}
+            className="mt-4 inline-block text-[13px] text-brand hover:underline"
+          >
+            See everything coming up →
+          </Link>
         </section>
       )}
-
-      <section className="mb-6 rounded-xl border border-edge bg-surface px-6 py-5">
-        <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-soft">
-          Coming up
-        </h2>
-        <ul className="mt-3 divide-y divide-edge">
-          {open.slice(0, 8).map((o) => (
-            <li key={o.id} className="flex items-baseline justify-between gap-4 py-2.5">
-              <div className="min-w-0">
-                <div className="text-[15px] text-ink">{OBLIGATION_LABELS[o.type]}</div>
-                <div className="text-[13px] text-ink-faint">
-                  {o.truck
-                    ? `Unit ${o.truck.unitNumber}`
-                    : o.driver
-                      ? `${o.driver.firstName} ${o.driver.lastName}`
-                      : 'Company'}
-                </div>
-              </div>
-              <div className="numeric shrink-0 text-right text-[13px]">
-                <div className="text-ink-soft">{formatDay(o.dueOn)}</div>
-                <div
-                  className={
-                    o.status === 'OVERDUE'
-                      ? 'text-critical'
-                      : o.coveredByTier
-                        ? 'text-good'
-                        : 'text-medium'
-                  }
-                >
-                  {o.status === 'OVERDUE'
-                    ? 'Past due'
-                    : o.coveredByTier
-                      ? 'We handle this'
-                      : 'Not in your plan'}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </section>
 
       {notCovered.length > 0 && (
         <section className="mb-6 rounded-xl border border-medium-edge bg-medium-soft px-6 py-5">
@@ -213,10 +145,6 @@ export default async function ClientPortalPage({
           before that date — you don&apos;t need to track it.
         </p>
       )}
-
-      <footer className="mt-10 border-t border-edge pt-5 text-[13px] text-ink-faint">
-        Questions? Call (800) 498-9820, Monday–Friday 9:00–5:30 Pacific.
-      </footer>
-    </main>
+    </>
   )
 }

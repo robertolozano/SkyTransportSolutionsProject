@@ -77,6 +77,16 @@ enum DocumentStatus {
   REJECTED
 }
 
+/// Outcome of running the uploaded image through document extraction.
+enum ExtractionStatus {
+  NOT_ATTEMPTED
+  /// No model credentials configured — the document still uploads, a human reads it.
+  UNAVAILABLE
+  PENDING
+  EXTRACTED
+  FAILED
+}
+
 // ---------------------------------------------------------------------------
 // Facts — entered/held, never derived
 // ---------------------------------------------------------------------------
@@ -263,11 +273,26 @@ model Document {
   type         String
   fileName     String
   storagePath  String
+  mimeType     String?
+  sizeBytes    Int?
   status       DocumentStatus @default(REQUESTED)
   requestedAt  DateTime?
   uploadedAt   DateTime?
   expiresOn    DateTime?
   createdAt    DateTime       @default(now())
+
+  // --- extraction -----------------------------------------------------------
+  extractionStatus ExtractionStatus @default(NOT_ATTEMPTED)
+  /// Document type the model identified, which may disagree with what was requested.
+  detectedType     String?
+  /// Field-by-field extraction result, kept whole so a human can audit what was read.
+  extractedFields  Json?
+  /// Model's own confidence, surfaced rather than hidden — low confidence routes to review.
+  confidence       String?
+  extractionNote   String?
+  extractedAt      DateTime?
+  /// Set once a person has checked the extracted values against the image.
+  reviewedAt       DateTime?
 
   carrier    Carrier     @relation(fields: [carrierId], references: [id], onDelete: Cascade)
   credential Credential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
