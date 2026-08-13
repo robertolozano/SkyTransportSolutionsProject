@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Compliance Radar">
+  <!--
+    Favicons are read at 16px, so this is a solid tile with chunky shapes rather than
+    a thin-stroked outline: a tractor unit and trailer in silhouette. The navy tile
+    keeps it legible against both light and dark browser chrome.
+  -->
+  <rect width="32" height="32" rx="7" fill="#1e3a8a"/>
+  <!-- Optical centring: the drawn shapes span x 4–26.7 and y 8–25.4, so nudge to sit
+       square in the tile rather than low and left. -->
+  <g transform="translate(0.65 -0.7)">
+    <g fill="#ffffff">
+      <!-- Trailer -->
+      <rect x="4" y="8" width="13" height="11" rx="1.5"/>
+      <!-- Tractor unit: hood slopes down from the cab roof to the bumper -->
+      <path d="M18 11h3.4a1.4 1.4 0 0 1 1.06.49l3.9 4.55A1.4 1.4 0 0 1 26.7 17v1.6a.4.4 0 0 1-.4.4H18a.4.4 0 0 1-.4-.4v-7.2a.4.4 0 0 1 .4-.4z"/>
+      <!-- Wheels -->
+      <circle cx="10" cy="22" r="3.4"/>
+      <circle cx="23" cy="22" r="3.4"/>
+    </g>
+    <!-- Hubs punched back out in the tile colour so the wheels read as wheels -->
+    <g fill="#1e3a8a">
+      <circle cx="10" cy="22" r="1.3"/>
+      <circle cx="23" cy="22" r="1.3"/>
+    </g>
+  </g>
+</svg>
