@@ -1,7 +1,14 @@
 import Link from 'next/link'
-import { getDeadlines, getStatesInBook, type DeadlineFilters } from '@/server/queries'
+import {
+  getDeadlines,
+  getDeadlineCount,
+  getStatesInBook,
+  type DeadlineFilters,
+  type ObligationStatusFilter,
+} from '@/server/queries'
 import { OBLIGATION_LABELS, RULES } from '@/rules'
 import { daysBetween } from '@/rules/dates'
+import { MultiSelect, FilterToggle } from '@/components/MultiSelect'
 import {
   Countdown,
   DateText,
@@ -17,29 +24,20 @@ import type { ObligationType } from '@/rules'
 
 export const dynamic = 'force-dynamic'
 
-const STATUSES = ['OVERDUE', 'DUE', 'UPCOMING', 'COMPLETED'] as const
+const STATUS_OPTIONS = [
+  { value: 'OVERDUE', label: 'Overdue' },
+  { value: 'DUE', label: 'Due soon' },
+  { value: 'UPCOMING', label: 'Upcoming' },
+  { value: 'COMPLETED', label: 'Filed' },
+]
 
-function FilterLink({
-  href,
-  active,
-  children,
-}: {
-  href: string
-  active: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <Link
-      href={href}
-      className={`rounded-md border px-2.5 py-1 text-[12px] transition-colors ${
-        active
-          ? 'border-brand bg-brand-soft font-medium text-brand'
-          : 'border-edge bg-surface text-ink-soft hover:border-edge-strong hover:text-ink'
-      }`}
-    >
-      {children}
-    </Link>
-  )
+/** Comma-separated query values, e.g. `?status=DUE,OVERDUE`. */
+function parseList(value: string | undefined): string[] {
+  if (!value) return []
+  return value
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
 }
 
 export default async function DeadlinesPage({
@@ -49,92 +47,100 @@ export default async function DeadlinesPage({
 }) {
   const sp = await searchParams
 
+  const statuses = parseList(sp.status) as ObligationStatusFilter[]
+  const types = parseList(sp.type) as ObligationType[]
+  const states = parseList(sp.state)
+
   const filters: DeadlineFilters = {
-    type: sp.type as ObligationType | undefined,
-    status: sp.status as DeadlineFilters['status'],
-    state: sp.state,
+    statuses,
+    types,
+    states,
     uncoveredOnly: sp.uncovered === '1',
     blockedOnly: sp.blocked === '1',
   }
 
-  const [rows, states] = await Promise.all([getDeadlines(filters), getStatesInBook()])
+  const [rows, total, statesInBook] = await Promise.all([
+    getDeadlines(filters),
+    getDeadlineCount(filters),
+    getStatesInBook(),
+  ])
   const asOf = new Date()
+  const truncated = rows.length < total
 
-  const qs = (patch: Record<string, string | undefined>) => {
-    const next = new URLSearchParams()
-    const merged = { ...sp, ...patch }
-    for (const [k, v] of Object.entries(merged)) if (v) next.set(k, v)
-    const s = next.toString()
-    return s ? `/deadlines?${s}` : '/deadlines'
-  }
+  const activeCount =
+    statuses.length +
+    types.length +
+    states.length +
+    (filters.uncoveredOnly ? 1 : 0) +
+    (filters.blockedOnly ? 1 : 0)
 
   return (
     <>
       <PageHeader
         title="Deadlines"
-        subtitle={`${rows.length} obligations shown. Every row was derived by a rule — expand the authority column to see which.`}
+        subtitle={`${
+          truncated
+            ? `Showing the first ${rows.length} of ${total} matching obligations`
+            : `${total} obligation${total === 1 ? '' : 's'} match`
+        }${
+          statuses.length === 0 ? ', excluding filings already completed' : ''
+        }. Every row was derived by a rule — the authority column names which.`}
       />
 
       <div className="px-8 py-6">
-        <div className="mb-5 space-y-2.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-              Status
-            </span>
-            <FilterLink href={qs({ status: undefined })} active={!sp.status}>
-              Open
-            </FilterLink>
-            {STATUSES.map((s) => (
-              <FilterLink key={s} href={qs({ status: s })} active={sp.status === s}>
-                {s.charAt(0) + s.slice(1).toLowerCase()}
-              </FilterLink>
-            ))}
-          </div>
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          <MultiSelect
+            label="Status"
+            paramName="status"
+            options={STATUS_OPTIONS}
+            selected={statuses}
+            currentParams={sp}
+            width="w-48"
+          />
+          <MultiSelect
+            label="Type"
+            paramName="type"
+            options={RULES.map((r) => ({
+              value: r.obligationType,
+              label: OBLIGATION_LABELS[r.obligationType],
+            }))}
+            selected={types}
+            currentParams={sp}
+            width="w-56"
+          />
+          <MultiSelect
+            label="State"
+            paramName="state"
+            options={statesInBook.map((s) => ({ value: s, label: s }))}
+            selected={states}
+            currentParams={sp}
+            width="w-40"
+          />
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-              Type
-            </span>
-            <FilterLink href={qs({ type: undefined })} active={!sp.type}>
-              All
-            </FilterLink>
-            {RULES.map((r) => (
-              <FilterLink
-                key={r.obligationType}
-                href={qs({ type: r.obligationType })}
-                active={sp.type === r.obligationType}
-              >
-                {OBLIGATION_LABELS[r.obligationType]}
-              </FilterLink>
-            ))}
-          </div>
+          <span className="mx-1 h-5 w-px bg-edge" aria-hidden />
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-              Filter
-            </span>
-            <FilterLink href={qs({ state: undefined })} active={!sp.state}>
-              All states
-            </FilterLink>
-            {states.map((s) => (
-              <FilterLink key={s} href={qs({ state: s })} active={sp.state === s}>
-                {s}
-              </FilterLink>
-            ))}
-            <span className="mx-1 text-ink-faint">·</span>
-            <FilterLink
-              href={qs({ uncovered: sp.uncovered === '1' ? undefined : '1' })}
-              active={sp.uncovered === '1'}
+          <FilterToggle
+            label="Outside plan"
+            paramName="uncovered"
+            active={filters.uncoveredOnly ?? false}
+            currentParams={sp}
+          />
+          <FilterToggle
+            label="Blocked only"
+            paramName="blocked"
+            active={filters.blockedOnly ?? false}
+            currentParams={sp}
+          />
+
+          {activeCount > 0 && (
+            <Link
+              href="/deadlines"
+              className="ml-1 text-[13px] text-brand hover:underline"
+              scroll={false}
             >
-              Outside plan
-            </FilterLink>
-            <FilterLink
-              href={qs({ blocked: sp.blocked === '1' ? undefined : '1' })}
-              active={sp.blocked === '1'}
-            >
-              Blocked only
-            </FilterLink>
-          </div>
+              Reset
+            </Link>
+          )}
         </div>
 
         {rows.length === 0 ? (
@@ -212,6 +218,13 @@ export default async function DeadlinesPage({
               })}
             </tbody>
           </Table>
+        )}
+
+        {truncated && (
+          <p className="mt-3 text-[13px] text-ink-faint">
+            {total - rows.length} further obligations match these filters and are not shown.
+            Narrow the filters to see them.
+          </p>
         )}
       </div>
     </>

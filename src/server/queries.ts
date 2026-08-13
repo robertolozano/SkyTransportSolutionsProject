@@ -343,23 +343,39 @@ export async function getTruckByVin(vin: string) {
   })
 }
 
+export type ObligationStatusFilter = 'UPCOMING' | 'DUE' | 'OVERDUE' | 'COMPLETED'
+
 export interface DeadlineFilters {
-  type?: ObligationType
-  status?: 'UPCOMING' | 'DUE' | 'OVERDUE' | 'COMPLETED'
-  state?: string
+  types?: ObligationType[]
+  statuses?: ObligationStatusFilter[]
+  states?: string[]
   uncoveredOnly?: boolean
   blockedOnly?: boolean
 }
 
+function deadlineWhere(filters: DeadlineFilters): Prisma.ObligationWhereInput {
+  const { types, statuses, states } = filters
+  return {
+    ...(types?.length ? { type: { in: types } } : {}),
+    // With no explicit status chosen, completed filings are hidden — the default
+    // question this page answers is "what is still outstanding".
+    ...(statuses?.length ? { status: { in: statuses } } : { status: { not: 'COMPLETED' } }),
+    ...(filters.uncoveredOnly ? { coveredByTier: false } : {}),
+    ...(states?.length ? { carrier: { state: { in: states } } } : {}),
+    ...(filters.blockedOnly
+      ? { blockedBy: { some: { blocker: { status: { not: 'COMPLETED' } } } } }
+      : {}),
+  }
+}
+
+/** Total matching the filters, so a truncated page can say so rather than implying completeness. */
+export async function getDeadlineCount(filters: DeadlineFilters): Promise<number> {
+  return prisma.obligation.count({ where: deadlineWhere(filters) })
+}
+
 export async function getDeadlines(filters: DeadlineFilters, limit = 200) {
   return prisma.obligation.findMany({
-    where: {
-      ...(filters.type ? { type: filters.type } : {}),
-      ...(filters.status ? { status: filters.status } : { status: { not: 'COMPLETED' } }),
-      ...(filters.uncoveredOnly ? { coveredByTier: false } : {}),
-      ...(filters.state ? { carrier: { state: filters.state } } : {}),
-      ...(filters.blockedOnly ? { blockedBy: { some: { blocker: { status: { not: 'COMPLETED' } } } } } : {}),
-    },
+    where: deadlineWhere(filters),
     include: {
       carrier: true,
       truck: true,
