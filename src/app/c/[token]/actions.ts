@@ -4,10 +4,12 @@ import { revalidatePath } from 'next/cache'
 import { prisma } from '@/server/db'
 import { storeUpload } from '@/server/storage'
 import {
+  detectMediaType,
   extractDocument,
   extractionConfigured,
   isSupportedMedia,
   MAX_IMAGE_BYTES,
+  PDF_MEDIA,
 } from '@/server/extract'
 
 /**
@@ -54,29 +56,36 @@ export async function submitDocument(
   if (file.size > MAX_IMAGE_BYTES) {
     return { ok: false, message: 'That file is too large. Try again with a smaller photo.' }
   }
-  if (!isSupportedMedia(file.type)) {
+
+  const bytes = Buffer.from(await file.arrayBuffer())
+
+  // Identify by content, not by the browser's claim. `file.type` is derived from
+  // the extension, so it is empty for an extension-less file and forgeable in any
+  // case — sniffing the magic number is both more permissive for real users and
+  // stricter against a bad one.
+  const mediaType = detectMediaType(bytes)
+  if (!mediaType || !isSupportedMedia(mediaType)) {
     return { ok: false, message: 'Please send a photo (JPEG, PNG, WebP) or a PDF.' }
   }
 
-  const bytes = Buffer.from(await file.arrayBuffer())
-  const stored = await storeUpload(carrier.id, file.name || 'upload.jpg', bytes)
+  const stored = await storeUpload(carrier.id, file.name || 'upload', bytes)
 
   await prisma.document.update({
     where: { id: document.id },
     data: {
       status: 'RECEIVED',
-      fileName: file.name || 'upload.jpg',
+      fileName: file.name || 'upload',
       storagePath: stored.storagePath,
-      mimeType: file.type,
+      mimeType: mediaType,
       sizeBytes: stored.sizeBytes,
       uploadedAt: new Date(),
       // A PDF always has a parser available; an image needs the vision model.
       extractionStatus:
-        file.type === 'application/pdf' || extractionConfigured() ? 'PENDING' : 'UNAVAILABLE',
+        mediaType === PDF_MEDIA || extractionConfigured() ? 'PENDING' : 'UNAVAILABLE',
     },
   })
 
-  const result = await extractDocument(bytes, file.type, document.type)
+  const result = await extractDocument(bytes, mediaType, document.type)
 
   if (result.status === 'EXTRACTED') {
     await prisma.document.update({

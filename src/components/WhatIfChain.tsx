@@ -59,7 +59,16 @@ export function WhatIfChain({
     [base, targetId, slipDays],
   )
 
-  const edges = useMemo(() => buildBlockEdges(simulated), [simulated])
+  /*
+    The dependency topology is derived from the ORIGINAL dates and then held
+    fixed, because what-depends-on-what is a property of the rules, not of the
+    calendar. Re-deriving it from the simulated dates looks equivalent and is
+    not: `buildBlockEdges` only links a prerequisite that falls *before* the
+    deadline it gates, so slipping one past that deadline deleted the edge
+    instead of breaking it — and the UI then cheerfully reported no problem in
+    exactly the situation the simulator exists to surface.
+  */
+  const edges = useMemo(() => buildBlockEdges(base), [base])
   const assessment = useMemo(
     () => computeOutOfService(simulated, edges, asOf),
     [simulated, edges, asOf],

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { normaliseDate, parsePdfDocument } from './pdfParse'
 import { generateSampleDocument, sampleSpecFor } from './pdfTemplate'
-import { extractDocument } from './extract'
+import { detectMediaType, extractDocument, isSupportedMedia } from './extract'
 
 /**
  * The document-reading path.
@@ -101,5 +101,57 @@ describe('extraction dispatch', () => {
   it('rejects an unsupported file type', async () => {
     const result = await extractDocument(Buffer.from('x'), 'text/html')
     expect(result.status).toBe('FAILED')
+  })
+})
+
+/**
+ * File-type detection.
+ *
+ * An end-to-end test caught the reason this exists: a browser derives
+ * `File.type` from the extension, so a perfectly valid PDF arriving without one
+ * reported an empty type and was rejected at the door. Sniffing the magic number
+ * is both more permissive for real users and stricter against a forged
+ * Content-Type.
+ */
+describe('media type detection', () => {
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  )
+
+  it('identifies a PDF by its header', async () => {
+    const spec = sampleSpecFor("Medical examiner's certificate", 'A B', 'X', null, 'CA')
+    const bytes = Buffer.from(await generateSampleDocument(spec))
+    expect(detectMediaType(bytes)).toBe('application/pdf')
+  })
+
+  it('identifies image formats by magic number', () => {
+    expect(detectMediaType(png)).toBe('image/png')
+    expect(detectMediaType(Buffer.from([0xff, 0xd8, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0]))).toBe(
+      'image/jpeg',
+    )
+    expect(detectMediaType(Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(8)]))).toBe(
+      'image/gif',
+    )
+    expect(
+      detectMediaType(
+        Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP')]),
+      ),
+    ).toBe('image/webp')
+  })
+
+  it('does not depend on a file extension or declared type', () => {
+    // This is the case that failed: content is a real PDF, name has no extension.
+    expect(detectMediaType(Buffer.from('%PDF-1.7\nrest of file'))).toBe('application/pdf')
+  })
+
+  it('refuses content that only claims to be an image', () => {
+    const html = Buffer.from('<!doctype html><script>alert(1)</script>')
+    expect(detectMediaType(html)).toBeNull()
+    expect(isSupportedMedia(detectMediaType(html) ?? '')).toBe(false)
+  })
+
+  it('refuses a file too short to identify', () => {
+    expect(detectMediaType(Buffer.from([0xff, 0xd8]))).toBeNull()
   })
 })

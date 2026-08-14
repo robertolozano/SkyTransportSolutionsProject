@@ -15,7 +15,9 @@
     "db:recompute": "tsx prisma/recompute.ts",
     "db:backfill": "tsx prisma/backfill.ts",
     "db:requests": "tsx prisma/requests.ts",
-    "db:reset": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts && tsx prisma/recompute.ts && tsx prisma/backfill.ts && tsx prisma/requests.ts"
+    "db:reset": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts && tsx prisma/recompute.ts && tsx prisma/backfill.ts && tsx prisma/requests.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
@@ -28,6 +30,7 @@
     "unpdf": "^1.8.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20.19.43",
     "@types/react": "^19",

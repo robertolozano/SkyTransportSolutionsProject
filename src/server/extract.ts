@@ -145,6 +145,46 @@ export function isSupportedMedia(mime: string): boolean {
 export const ACCEPTED_UPLOAD_TYPES = [...SUPPORTED_IMAGE_MEDIA, PDF_MEDIA].join(',')
 
 /**
+ * Identify a file from its leading bytes.
+ *
+ * The browser-supplied `File.type` is not trustworthy: it is derived from the
+ * file extension, so it comes back empty for a file that has none, varies across
+ * platforms, and is trivially forged. Validating on it rejected a perfectly good
+ * PDF that simply arrived without an extension.
+ *
+ * Sniffing the magic number fixes that and closes the matching hole — a caller
+ * cannot declare `image/png` and send something else.
+ */
+export function detectMediaType(bytes: Buffer): string | null {
+  if (bytes.length < 12) return null
+
+  // %PDF-
+  if (bytes.subarray(0, 5).toString('latin1') === '%PDF-') return PDF_MEDIA
+
+  // JPEG: FF D8 FF
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return 'image/png'
+  }
+
+  // GIF87a / GIF89a
+  const head = bytes.subarray(0, 6).toString('latin1')
+  if (head === 'GIF87a' || head === 'GIF89a') return 'image/gif'
+
+  // RIFF....WEBP
+  if (
+    bytes.subarray(0, 4).toString('latin1') === 'RIFF' &&
+    bytes.subarray(8, 12).toString('latin1') === 'WEBP'
+  ) {
+    return 'image/webp'
+  }
+
+  return null
+}
+
+/**
  * True when a model is reachable. Checked rather than assumed so the upload path
  * can degrade to manual review instead of failing.
  */
