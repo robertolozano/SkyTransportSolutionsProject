@@ -37,6 +37,66 @@ export default async function ClientPortalPage({
 
   const allClear = overdue.length === 0 && pendingDocs.length === 0
 
+  /*
+    A prospect has no fleet and therefore no obligations, which would otherwise
+    render as "You're covered — 0 requirements across 0 trucks". That is the
+    right data and completely the wrong message: nothing is being tracked yet
+    because setup hasn't happened. Onboarding gets its own state.
+  */
+  if (carrier.status === 'PROSPECT') {
+    return (
+      <>
+        <section className="mb-6 rounded-xl border border-medium-edge bg-medium-soft px-6 py-6">
+          <div className="text-xl font-semibold text-ink">We&apos;re setting you up.</div>
+          <p className="mt-2 text-[15px] leading-relaxed text-ink-soft">
+            A compliance specialist is reviewing the answers you gave and will call you within one
+            business day. Once your registrations are filed, this page starts tracking every
+            renewal for you — and we&apos;ll ask here for anything we need.
+          </p>
+        </section>
+
+        <section className="mb-6 rounded-xl border border-edge bg-surface px-6 py-5">
+          <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-soft">
+            Your plan
+          </h2>
+          <div className="mt-3 flex flex-wrap items-baseline justify-between gap-3">
+            <div className="text-[15px] font-medium text-ink">
+              {carrier.recommendedPackage ?? 'Setup package'}
+            </div>
+            {carrier.recommendedPrice != null && (
+              <div className="numeric text-lg font-semibold text-ink">
+                ${carrier.recommendedPrice}
+              </div>
+            )}
+          </div>
+          <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
+            Nothing has been charged. We confirm everything with you before filing.
+          </p>
+        </section>
+
+        {pendingDocs.length > 0 && (
+          <section className="mb-6 rounded-xl border border-edge bg-surface px-6 py-5">
+            <h2 className="text-[15px] font-semibold text-ink">We need something from you</h2>
+            <p className="mt-1 text-[13px] leading-relaxed text-ink-soft">
+              {pendingDocs.length} {pendingDocs.length === 1 ? 'document' : 'documents'} to get
+              started.
+            </p>
+            <Link
+              href={`/c/${token}/documents`}
+              className="mt-3 inline-block rounded-md bg-brand px-4 py-2 text-[14px] font-medium text-white transition-opacity hover:opacity-90"
+            >
+              Send {pendingDocs.length === 1 ? 'it' : 'them'}
+            </Link>
+          </section>
+        )}
+
+        <p className="text-[13px] leading-relaxed text-ink-faint">
+          Questions in the meantime? Call (800) 498-9820, Monday–Friday 9:00–5:30 Pacific.
+        </p>
+      </>
+    )
+  }
+
   return (
     <>
       <section

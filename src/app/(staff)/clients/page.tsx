@@ -18,7 +18,9 @@ export const dynamic = 'force-dynamic'
 
 export default async function ClientsPage() {
   const carriers = await getCarrierRisk()
-  const exposed = carriers.filter(
+  const prospects = carriers.filter((c) => c.status === 'PROSPECT')
+  const active = carriers.filter((c) => c.status !== 'PROSPECT')
+  const exposed = active.filter(
     (c) => c.daysToOutOfService !== null && c.daysToOutOfService <= 30,
   ).length
 
@@ -26,7 +28,11 @@ export default async function ClientsPage() {
     <>
       <PageHeader
         title="Clients"
-        subtitle={`${carriers.length} carriers, sorted by the date their first vehicle stops being legal. ${exposed} within 30 days.`}
+        subtitle={`${active.length} active carriers, sorted by the date their first vehicle stops being legal — ${exposed} within 30 days.${
+          prospects.length > 0
+            ? ` ${prospects.length} new ${prospects.length === 1 ? 'lead' : 'leads'} awaiting callback.`
+            : ''
+        }`}
       />
 
       <div className="px-8 py-6">
@@ -59,11 +65,24 @@ export default async function ClientsPage() {
                       {c.legalName}
                     </Link>
                     <div className="numeric mt-0.5 text-[11px] text-ink-faint">
-                      DOT {c.dotNumber} · {c.operationType === 'INTERSTATE' ? 'Interstate' : 'Intrastate'}
+                      {c.dotNumber.startsWith('PENDING-')
+                        ? 'USDOT not yet issued'
+                        : `DOT ${c.dotNumber}`}{' '}
+                      · {c.operationType === 'INTERSTATE' ? 'Interstate' : 'Intrastate'}
                     </div>
+                    {c.status === 'PROSPECT' && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <span className="rounded border border-medium-edge bg-medium-soft px-1.5 py-0.5 text-[10px] font-medium text-medium">
+                          New lead
+                        </span>
+                        {c.contactName && (
+                          <span className="text-[11px] text-ink-faint">{c.contactName}</span>
+                        )}
+                      </div>
+                    )}
                   </Td>
                   <Td className="text-ink-soft">
-                    {c.city}, {c.state}
+                    {c.city ? `${c.city}, ${c.state}` : c.state}
                   </Td>
                   <Td className="numeric text-right text-ink-soft">{c.truckCount}</Td>
                   <Td>

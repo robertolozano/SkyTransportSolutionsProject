@@ -181,6 +181,10 @@ export interface CarrierRiskRow {
   city: string
   state: string
   tier: Tier
+  status: 'PROSPECT' | 'ACTIVE'
+  contactName: string | null
+  recommendedPackage: string | null
+  recommendedPrice: number | null
   operationType: string
   truckCount: number
   openCount: number
@@ -197,6 +201,8 @@ export async function getCarrierRisk(): Promise<CarrierRiskRow[]> {
     SELECT
       c.id, c."dotNumber", c."legalName", c.city, c.state,
       c.tier::text AS tier,
+      c.status::text AS status,
+      c."contactName", c."recommendedPackage", c."recommendedPrice",
       c."operationType"::text AS "operationType",
       COALESCE(fleet.truck_count, 0)::int AS "truckCount",
       COALESCE(agg.open_count, 0)::int      AS "openCount",
@@ -223,7 +229,14 @@ export async function getCarrierRisk(): Promise<CarrierRiskRow[]> {
       WHERE status <> 'COMPLETED'
       GROUP BY "carrierId"
     ) agg ON agg."carrierId" = c.id
-    ORDER BY agg.oos_date ASC NULLS LAST
+    -- New leads first: a prospect waiting on a callback is more urgent than a
+    -- client whose next deadline is nine months out. Within each group the sort
+    -- differs — prospects by how recently they arrived, clients by risk — so the
+    -- date key is scoped by status rather than applied to everyone.
+    ORDER BY
+      (c.status = 'PROSPECT') DESC,
+      CASE WHEN c.status = 'PROSPECT' THEN c."createdAt" END DESC,
+      agg.oos_date ASC NULLS LAST
   `
 }
 

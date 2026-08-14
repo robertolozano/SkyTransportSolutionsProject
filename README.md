@@ -201,7 +201,27 @@ the graph can never drift from the engine that produces the obligations.
 | UCR registration | carrier | opens Oct 1, due Dec 31 |
 | Medical certificate | driver | read from the certificate, not assumed |
 
-**16 routes**, split into two audiences.
+**Three surfaces, by who is looking** — and the split is a real authorisation boundary, not a
+navigation convenience:
+
+| Surface | Who | Auth |
+|---|---|---|
+| **`/start`** — public walkthrough | A carrier who is not a customer yet | None. An account is the *output* of this flow. |
+| **`/c/<token>`** — client portal | An existing customer | An unguessable token authorising exactly one account |
+| **Staff console** | Sky employees | Sees every carrier |
+
+That resolves what looks like a contradiction: a client portal should never let one carrier see
+another, yet onboarding has to create an account from nothing. It only conflicts if onboarding
+lives behind the portal — and it doesn't, because a prospect has no account to log into. The
+walkthrough is public, exactly as it would be on the real site.
+
+The acquisition loop runs end to end: a prospect answers six questions → a `PROSPECT` carrier is
+created with their answers and recommendation → they appear at the top of the staff book as a new
+lead → their portal shows an onboarding state rather than a compliance dashboard. Staff reach any
+carrier's client view from the carrier record itself ("View as client"), which is authorised —
+unlike a carrier list inside the portal, which would be a customer-list disclosure.
+
+**20 routes**, split across those three audiences.
 
 *Staff console* — dashboard work queue · client book · carrier detail with filing history ·
 truck detail with the dependency chain, backward-scheduled action plan, and what-if simulator ·
@@ -298,6 +318,9 @@ hides its own uncertainty is worse than one that admits it:
 
 ## Demo path
 
+0. **`/start`** — the public walkthrough, before anyone is a customer. Answer "no" to *crossing
+   state lines* and watch the requirement list drop from 10 to 5 and the price from $1,200 to
+   $975. Complete it and you land on a real account; the new lead is at the top of `/clients`.
 1. **`/dashboard`** — the risk strip, and the asymmetry callout: trucks about to be parked
    at ~$800/day against $199–$399 memberships.
 2. **`/clients`** — the whole book sorted by out-of-service date. Open *Altamont Freight

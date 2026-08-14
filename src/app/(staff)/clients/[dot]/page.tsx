@@ -60,9 +60,23 @@ export default async function CarrierPage({ params }: { params: Promise<{ dot: s
           </span>
         }
         right={
-          <div className="flex items-center gap-2">
-            <TierBadge tier={carrier.tier} />
-            <span className="numeric text-[13px] text-ink-soft">{money(membership)}/yr</span>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <TierBadge tier={carrier.tier} />
+              <span className="numeric text-[13px] text-ink-soft">{money(membership)}/yr</span>
+            </div>
+            {/* Support needs "show me what the customer sees". Reached from the
+                carrier record, which staff are already authorised to open —
+                unlike a carrier list inside the client portal, which would be a
+                customer-list disclosure. */}
+            {carrier.portalToken && (
+              <Link
+                href={`/c/${carrier.portalToken}`}
+                className="text-[13px] text-brand hover:underline"
+              >
+                View as client →
+              </Link>
+            )}
           </div>
         }
       />

@@ -27,6 +27,14 @@ enum Tier {
   DIAMOND
 }
 
+/// Where a carrier sits in the relationship, not in their compliance.
+enum CarrierStatus {
+  /// Completed the public walkthrough; not yet a customer. No fleet, no filings.
+  PROSPECT
+  /// A paying customer with credentials being tracked.
+  ACTIVE
+}
+
 enum OperationType {
   INTERSTATE
   INTRASTATE
@@ -113,6 +121,19 @@ model Carrier {
   memberSince   DateTime
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+
+  // --- acquisition ----------------------------------------------------------
+  status        CarrierStatus @default(ACTIVE)
+  contactName   String?
+  contactEmail  String?
+  contactPhone  String?
+  /// Answers given in the public walkthrough, kept so a rep can see what the
+  /// prospect said rather than re-interviewing them.
+  onboardingProfile Json?
+  /// Package and tier the engine recommended from those answers.
+  recommendedPackage String?
+  recommendedPrice   Int?
+  recommendedTier    Tier?
 
   trucks      Truck[]
   drivers     Driver[]
