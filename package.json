@@ -7,13 +7,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:seed": "tsx prisma/seed.ts",
-    "db:recompute": "tsx prisma/recompute.ts",
-    "db:reset": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts && tsx prisma/recompute.ts && tsx prisma/backfill.ts && tsx prisma/requests.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "db:up": "docker start compliance-radar-db 2>/dev/null || docker run --name compliance-radar-db -e POSTGRES_PASSWORD=radar -e POSTGRES_USER=radar -e POSTGRES_DB=compliance_radar -p 5433:5432 -d postgres:16",
+    "db:down": "docker stop compliance-radar-db",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:recompute": "tsx prisma/recompute.ts",
     "db:backfill": "tsx prisma/backfill.ts",
-    "db:requests": "tsx prisma/requests.ts"
+    "db:requests": "tsx prisma/requests.ts",
+    "db:reset": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts && tsx prisma/recompute.ts && tsx prisma/backfill.ts && tsx prisma/requests.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

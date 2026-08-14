@@ -57,31 +57,60 @@ at all.
 
 ## Running it
 
-Requires Docker and Node 20+.
+Requires Docker Desktop and Node 20+.
+
+### Every time (once it's set up)
 
 ```bash
-# 1. Start Postgres
-docker run --name compliance-radar-db \
-  -e POSTGRES_PASSWORD=radar -e POSTGRES_USER=radar -e POSTGRES_DB=compliance_radar \
-  -p 5433:5432 -d postgres:16
+open -a Docker          # if Docker Desktop isn't already running
+cd compliance-radar
+npm run db:up           # starts the Postgres container (data persists between runs)
+npm run dev             # http://localhost:3000
+```
 
-# 2. Install and set up
+That's it — the database keeps its data, so there's no need to reseed.
+
+### First time
+
+```bash
+open -a Docker
+cd compliance-radar
 npm install
+
 echo 'DATABASE_URL="postgresql://radar:radar@localhost:5433/compliance_radar?schema=public"' > .env
+
+npm run db:up           # creates and starts the Postgres container on port 5433
 npx prisma migrate deploy
 npx prisma generate
 
-# 3. Seed, derive, and backfill filing history
-npm run db:seed        # 40 carriers, 143 trucks, 152 drivers
-npm run db:recompute   # runs the rules engine, materializes ~1,150 obligations
-npm run db:backfill    # marks past filings complete, leaves a realistic minority missed
+npm run db:seed         # 40 carriers, 143 trucks, 152 drivers
+npm run db:recompute    # runs the rules engine, materialises ~1,150 obligations
+npm run db:backfill     # marks past filings complete, leaves a realistic minority missed
+npm run db:requests     # generates outstanding document requests
 
-# 4. Run
-npm run dev            # http://localhost:3000
-npm test               # 45 unit tests
+npm run dev             # http://localhost:3000
 ```
 
-`npm run db:reset` does all of steps 2–3 from scratch.
+### Useful commands
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server on :3000 |
+| `npm run db:up` / `db:down` | Start / stop the Postgres container |
+| `npm run db:reset` | Rebuild the database from scratch (migrate → seed → recompute → backfill → requests) |
+| `npm test` | 82 unit tests, no database needed |
+| `npm run build` | Production build |
+
+### Troubleshooting
+
+**`Can't reach database server at localhost:5433`** — the container isn't running. `npm run db:up`.
+
+**`Cannot connect to the Docker daemon`** — Docker Desktop isn't running. `open -a Docker`, wait for
+the whale icon to settle, then retry.
+
+**Port 3000 already in use** — an old dev server is still alive: `pkill -f "next dev"`.
+
+**Blank or stale pages after switching branches** — `rm -rf .next && npm run dev`.
 
 ---
 
