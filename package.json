@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma migrate deploy && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
@@ -17,7 +17,8 @@
     "db:requests": "tsx prisma/requests.ts",
     "db:reset": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts && tsx prisma/recompute.ts && tsx prisma/backfill.ts && tsx prisma/requests.ts",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

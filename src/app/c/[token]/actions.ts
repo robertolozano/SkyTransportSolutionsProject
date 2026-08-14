@@ -68,7 +68,7 @@ export async function submitDocument(
     return { ok: false, message: 'Please send a photo (JPEG, PNG, WebP) or a PDF.' }
   }
 
-  const stored = await storeUpload(carrier.id, file.name || 'upload', bytes)
+  const stored = await storeUpload(carrier.id, file.name || 'upload', bytes, mediaType)
 
   await prisma.document.update({
     where: { id: document.id },

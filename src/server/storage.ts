@@ -1,58 +1,69 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { prisma } from './db'
 
 /**
  * Uploaded-file storage.
  *
- * Local disk, deliberately: a demo should not require an object-store account to
- * run. The interface is the part that matters — swapping this for S3 is one file,
- * because nothing above it knows where bytes live.
+ * Bytes live in Postgres. The obvious implementation — write to a directory —
+ * works locally and fails silently on a serverless host, where the filesystem is
+ * read-only outside a scratch directory that does not survive the request. That
+ * failure would land on the document upload, which is the feature this product
+ * is most likely to be judged on.
  *
- * Files are written outside `public/` and served through a route handler, so a
- * client document is never reachable just by guessing a URL.
+ * At real volume the answer is object storage (S3, Vercel Blob) with a signed
+ * URL. At this size — documents capped at 5 MB, a handful per carrier — a table
+ * keeps the system self-contained with nothing extra to provision, and the
+ * interface below is the only thing that would change.
+ *
+ * That interface is deliberately two functions with no leaked details: callers
+ * hand over bytes and get back an opaque key, which is why moving from disk to
+ * Postgres touched this file and nothing else.
  */
-
-const UPLOAD_ROOT = path.join(process.cwd(), '.uploads')
-
-function safeSegment(value: string): string {
-  // Never let a client-supplied name reach the filesystem. Hash it instead.
-  return createHash('sha256').update(value).digest('hex').slice(0, 16)
-}
 
 export interface StoredFile {
   storagePath: string
   sizeBytes: number
 }
 
+/** Never let a client-supplied value become part of a stored identifier. */
+function safeSegment(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 16)
+}
+
 export async function storeUpload(
   carrierId: string,
   fileName: string,
   bytes: Buffer,
+  mimeType?: string,
 ): Promise<StoredFile> {
-  const dir = path.join(UPLOAD_ROOT, safeSegment(carrierId))
-  await mkdir(dir, { recursive: true })
+  // The extension is cosmetic — it makes keys readable in the database without
+  // being trusted for anything. Content type is decided by sniffing the bytes.
+  const ext = path.extname(fileName).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 8)
+  const key = `${safeSegment(carrierId)}/${randomUUID()}${ext}`
 
-  const ext = path.extname(fileName).toLowerCase().replace(/[^.a-z0-9]/g, '') || '.bin'
-  const key = `${randomUUID()}${ext}`
-  await writeFile(path.join(dir, key), bytes)
+  await prisma.uploadBlob.create({
+    // Prisma's Bytes maps to Uint8Array; a Buffer is one, but its backing store
+    // is typed loosely enough that the compiler will not accept it directly.
+    data: { key, bytes: new Uint8Array(bytes), mimeType: mimeType ?? null },
+  })
 
-  // Store the relative key; the absolute root is an implementation detail.
-  return {
-    storagePath: path.join(safeSegment(carrierId), key),
-    sizeBytes: bytes.byteLength,
-  }
+  return { storagePath: key, sizeBytes: bytes.byteLength }
 }
 
 export async function readUpload(storagePath: string): Promise<Buffer | null> {
-  // Resolve and confirm the result is still inside the upload root — a stored path
-  // should never be able to escape it, but this is the check that guarantees it.
-  const resolved = path.resolve(UPLOAD_ROOT, storagePath)
-  if (!resolved.startsWith(path.resolve(UPLOAD_ROOT) + path.sep)) return null
+  if (!storagePath) return null
 
-  try {
-    return await readFile(resolved)
-  } catch {
-    return null
-  }
+  const blob = await prisma.uploadBlob.findUnique({
+    where: { key: storagePath },
+    select: { bytes: true },
+  })
+  if (!blob) return null
+
+  return Buffer.from(blob.bytes)
+}
+
+/** Remove a stored blob. Used when a document is superseded or deleted. */
+export async function deleteUpload(storagePath: string): Promise<void> {
+  await prisma.uploadBlob.deleteMany({ where: { key: storagePath } })
 }

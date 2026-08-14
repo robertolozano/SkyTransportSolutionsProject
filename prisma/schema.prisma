@@ -324,6 +324,23 @@ model Document {
   @@index([status])
 }
 
+/// Uploaded file bytes.
+///
+/// Kept in Postgres rather than on disk because the deployment target has a
+/// read-only filesystem — a local directory works in development and silently
+/// fails in production. Object storage is the answer at real volume; at this
+/// size (documents are capped at 5 MB and there are few) a table keeps the
+/// system self-contained with no extra service to provision.
+///
+/// Blobs live in their own table so listing documents never drags the bytes
+/// along with the row.
+model UploadBlob {
+  key       String   @id
+  bytes     Bytes
+  mimeType  String?
+  createdAt DateTime @default(now())
+}
+
 model Filing {
   id              String   @id @default(cuid())
   obligationId    String
