@@ -46,11 +46,17 @@ is seeded. Re-run these four scripts any time you want it to look fresh.
 2. **Add New → Project**, import `robertolozano/SkyTransportSolutionsProject`.
 3. Set **Root Directory** to `compliance-radar`. This matters — the repository
    root is one level above the app.
-4. Add an environment variable:
+4. Add **two** environment variables:
 
    | Name | Value |
    |---|---|
-   | `DATABASE_URL` | the same pooled Neon string |
+   | `DATABASE_URL` | the Neon string **with `-pooler`** in the hostname |
+   | `DIRECT_URL` | the same string **without `-pooler`** |
+
+   Runtime queries go through the pooler because a serverless function opens a
+   connection per invocation. Migrations do not: a pooler in transaction mode
+   cannot hold the session state that DDL needs, so `migrate deploy` would fail
+   at build time against the pooled host.
 
 5. **Deploy.**
 
@@ -105,8 +111,9 @@ can never serve code that expects a column the database does not have.
 
 ## Troubleshooting
 
-**Build fails on `prisma migrate deploy`** — `DATABASE_URL` is missing or wrong
-in Vercel's environment variables. It is needed at build time, not just runtime.
+**Build fails on `prisma migrate deploy`** — either `DIRECT_URL` is missing, or
+it points at the pooled host. Migrations need the direct endpoint (no `-pooler`).
+Both variables are needed at build time, not just runtime.
 
 **"Can't reach database server"** — check you used the pooled host and kept
 `?sslmode=require`.

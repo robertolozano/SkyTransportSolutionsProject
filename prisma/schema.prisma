@@ -14,7 +14,14 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Runtime queries go through the connection pooler: a serverless function
+  // opens a connection per invocation, and an unpooled Postgres starts refusing
+  // them under load.
   url      = env("DATABASE_URL")
+  // Migrations do not. A pooler in transaction mode cannot hold the session
+  // state that DDL and advisory locks need, so `migrate deploy` runs against
+  // the direct endpoint. Locally both point at the same database.
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------------------------------------------------------------------------
