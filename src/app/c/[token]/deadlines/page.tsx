@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation'
 import { getCarrierByToken } from '@/server/queries'
-import { OBLIGATION_LABELS } from '@/rules'
-import { daysBetween, formatDay } from '@/rules/dates'
+import { Stat } from '@/components/ui'
 import { CalendarSubscribe } from '../CalendarSubscribe'
+import { DeadlineRow } from '../DeadlineRow'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,69 +45,53 @@ export default async function ClientDeadlinesPage({
     })
   }
 
+  const handled = open.filter((o) => o.coveredByTier).length
+  const overdue = open.filter((o) => o.status === 'OVERDUE').length
+
   return (
     <>
-      <section className="mb-6 rounded-xl border border-edge bg-surface px-6 py-5">
-        <div className="flex flex-wrap items-baseline justify-between gap-4">
-          <div>
-            <div className="text-[15px] font-semibold text-ink">
-              {open.length} upcoming {open.length === 1 ? 'requirement' : 'requirements'}
-            </div>
-            <p className="mt-1 text-[13px] leading-relaxed text-ink-soft">
-              {open.filter((o) => o.coveredByTier).length} of these are handled by us under your{' '}
-              {carrier.tier.toLowerCase()} plan. We&apos;ve already filed {completed.length} for
-              you.
-            </p>
-          </div>
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat label="Upcoming" value={open.length} hint="Requirements on the calendar" />
+        <Stat
+          label="We handle"
+          value={handled}
+          hint={`Under your ${carrier.tier.toLowerCase()} plan`}
+          tone="good"
+        />
+        <Stat
+          label="Not in your plan"
+          value={open.length - handled}
+          hint="We remind you, you file"
+        />
+        {overdue > 0 ? (
+          <Stat label="Past due" value={overdue} hint="Our office will be in touch" tone="critical" />
+        ) : (
+          <Stat label="Filed for you" value={completed.length} hint="Already done" />
+        )}
+      </div>
+
+      {/* The calendar card stays in view beside a long list on a wide screen;
+          on a phone it drops below the months, where it was before. */}
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div>
+          {[...months.entries()].map(([key, items]) => (
+            <section key={key} className="mb-6 last:mb-0">
+              <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-ink-soft">
+                {monthLabel(key)}
+              </h2>
+              <ul className="divide-y divide-edge overflow-hidden rounded-xl border border-edge bg-surface">
+                {items.map((o) => (
+                  <DeadlineRow key={o.id} obligation={o} asOf={asOf} />
+                ))}
+              </ul>
+            </section>
+          ))}
         </div>
-      </section>
 
-      {[...months.entries()].map(([key, items]) => (
-        <section key={key} className="mb-6">
-          <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-ink-soft">
-            {monthLabel(key)}
-          </h2>
-          <ul className="divide-y divide-edge overflow-hidden rounded-xl border border-edge bg-surface">
-            {items.map((o) => {
-              const days = daysBetween(asOf, o.dueOn)
-              return (
-                <li key={o.id} className="flex flex-wrap items-baseline justify-between gap-3 px-5 py-3.5">
-                  <div className="min-w-0">
-                    <div className="text-[15px] text-ink">{OBLIGATION_LABELS[o.type]}</div>
-                    <div className="mt-0.5 text-[13px] text-ink-faint">
-                      {o.truck
-                        ? `Unit ${o.truck.unitNumber}`
-                        : o.driver
-                          ? `${o.driver.firstName} ${o.driver.lastName}`
-                          : 'Your company'}
-                    </div>
-                  </div>
-                  <div className="numeric shrink-0 text-right text-[13px]">
-                    <div className="text-ink-soft">{formatDay(o.dueOn)}</div>
-                    <div
-                      className={
-                        o.status === 'OVERDUE'
-                          ? 'text-critical'
-                          : o.coveredByTier
-                            ? 'text-good'
-                            : 'text-medium'
-                      }
-                    >
-                      {o.status === 'OVERDUE'
-                        ? `${Math.abs(days)} days past due`
-                        : o.coveredByTier
-                          ? 'We handle this'
-                          : 'Not in your plan'}
-                    </div>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      ))}
-
-      <CalendarSubscribe token={token} />
+        <aside className="xl:sticky xl:top-6">
+          <CalendarSubscribe token={token} />
+        </aside>
+      </div>
     </>
   )
 }

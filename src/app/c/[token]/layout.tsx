@@ -1,20 +1,24 @@
 import { notFound } from 'next/navigation'
 import { prisma } from '@/server/db'
-import { PortalNav } from '@/components/PortalNav'
-import { ViewToggle } from '@/components/ViewToggle'
+import { AppShell } from '@/components/AppShell'
+import { ensureDemoRequest } from '@/server/demo'
 
 /**
  * Client portal shell.
  *
- * Deliberately not the staff console: no sidebar, no dense tables, a single
- * centred column sized for a phone. The reader is an owner-operator who opened a
- * link from a text message, quite possibly at a truck stop.
+ * The same frame as the staff console, so the two read as one product — but
+ * with three nav items, because there are exactly three things a carrier wants:
+ * am I covered, what is coming, and what do you need from me. Anything more is
+ * the operations console leaking into the customer's view. On a phone the
+ * sidebar collapses into a tab row, since the reader is often an owner-operator
+ * who opened a link from a text message at a truck stop.
  */
 export default async function PortalLayout({
   children,
   params,
 }: LayoutProps<'/c/[token]'>) {
   const { token } = await params
+  await ensureDemoRequest(token)
 
   const carrier = await prisma.carrier.findUnique({
     where: { portalToken: token },
@@ -26,39 +30,44 @@ export default async function PortalLayout({
   })
   if (!carrier) notFound()
 
+  const base = `/c/${token}`
+
   return (
-    <div className="min-h-screen bg-canvas">
-      {/* The identity block scrolls away; the tab row and the view toggle stay
-          pinned, so they are reachable from anywhere in a long deadline list
-          without scrolling back to the top. */}
-      <div className="bg-surface">
-        <div className="mx-auto max-w-2xl px-5 pt-5 pb-4">
-          <div className="text-[12px] font-medium uppercase tracking-wider text-ink-faint">
-            Sky Transport Solutions
-          </div>
-          <h1 className="mt-1 truncate text-xl font-semibold tracking-tight text-ink">
-            {carrier.legalName}
-          </h1>
-          <div className="numeric mt-0.5 text-[13px] text-ink-faint">
-            DOT {carrier.dotNumber}
-          </div>
-        </div>
+    <AppShell
+      nav={[
+        {
+          label: null,
+          items: [
+            { href: base, label: 'Overview', exact: true },
+            { href: `${base}/deadlines`, label: 'Deadlines' },
+            { href: `${base}/documents`, label: 'Documents', badge: carrier.documents.length },
+          ],
+        },
+      ]}
+      home={{ href: base, title: 'Sky Transport Solutions', subtitle: 'Client portal' }}
+      footerNote={
+        <>
+          Questions? Call (800) 498-9820,
+          <br />
+          Monday–Friday 9:00–5:30 Pacific.
+        </>
+      }
+      clientToken={token}
+    >
+      <div className="border-b border-edge bg-surface px-5 py-5 sm:px-8">
+        <h1 className="truncate text-xl font-semibold tracking-tight text-ink">
+          {carrier.legalName}
+        </h1>
+        <div className="numeric mt-0.5 text-[13px] text-ink-faint">DOT {carrier.dotNumber}</div>
       </div>
 
-      <header className="sticky top-0 z-20 border-b border-edge bg-surface">
-        <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-5">
-          <PortalNav token={token} needsAction={carrier.documents.length} />
-          <div className="shrink-0 pb-1.5">
-            <ViewToggle clientToken={token} />
-          </div>
-        </div>
-      </header>
+      {/* Full width, like the staff pages. Each portal page lays out its own
+          columns on wide screens and stacks to a single column on a phone. */}
+      <div className="px-5 py-6 sm:px-8">{children}</div>
 
-      <main className="mx-auto max-w-2xl px-5 py-6">{children}</main>
-
-      <footer className="mx-auto max-w-2xl px-5 pb-10 text-[13px] text-ink-faint">
+      <footer className="px-5 pb-10 text-[13px] text-ink-faint sm:px-8 lg:hidden">
         Questions? Call (800) 498-9820, Monday–Friday 9:00–5:30 Pacific.
       </footer>
-    </div>
+    </AppShell>
   )
 }

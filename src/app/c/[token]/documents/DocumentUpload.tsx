@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { submitDocument } from '../actions'
+import { submitDocument, type UploadResult } from '../actions'
+import { WhatWeRead } from './WhatWeRead'
 
 /**
  * Document capture.
  *
- * Three routes in, because the right one depends entirely on where the user is:
+ * Two routes in, because the right one depends entirely on where the user is:
  *
  *  - **Camera** — `getUserMedia`, so it opens a live viewfinder on a laptop too.
  *    The `capture` attribute alone only opens the camera on mobile; on desktop
@@ -15,8 +16,6 @@ import { submitDocument } from '../actions'
  *    the button look broken.
  *  - **Choose file** — the fallback that always works, and the route for a PDF
  *    the client already has.
- *  - **Sample document** — a generated PDF for this exact request, so the loop
- *    can be exercised without hunting for a real medical card.
  *
  * Photographs are downscaled in the browser first: a phone camera produces
  * 4–12 MB per shot, the text on a compliance document is legible at 1600px, and
@@ -55,10 +54,13 @@ export function DocumentUpload({
   token,
   documentId,
   label,
+  demo = false,
 }: {
   token: string
   documentId: string
   label: string
+  /** Showcase account — show the parse result in place; a reload re-requests it. */
+  demo?: boolean
 }) {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -70,6 +72,7 @@ export function DocumentUpload({
   const [error, setError] = useState<string | null>(null)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [sent, setSent] = useState<UploadResult | null>(null)
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -146,6 +149,7 @@ export function DocumentUpload({
 
       const result = await submitDocument(token, documentId, formData)
       if (!result.ok) setError(result.message)
+      else if (result.demo) setSent(result)
       else startTransition(() => router.refresh())
     } catch {
       setError('That didn’t send. Check your connection and try again.')
@@ -156,6 +160,23 @@ export function DocumentUpload({
   }
 
   const working = busy || pending
+
+  if (sent) {
+    return (
+      <div className="space-y-3">
+        <div className="rounded-lg border border-good-edge bg-good-soft px-4 py-3">
+          <div className="text-[14px] font-medium text-ink">Received</div>
+          <p className="mt-0.5 text-[13px] leading-relaxed text-ink-soft">{sent.message}</p>
+        </div>
+        {sent.read && <WhatWeRead {...sent.read} />}
+        {demo && (
+          <p className="text-[12px] text-ink-faint">
+            Demo account — refresh the page and this request comes back, ready to send again.
+          </p>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -218,12 +239,6 @@ export function DocumentUpload({
           >
             Choose file
           </button>
-          <a
-            href={`/api/samples/${documentId}`}
-            className="text-[13px] text-brand hover:underline"
-          >
-            Download a sample to test
-          </a>
         </div>
       )}
 

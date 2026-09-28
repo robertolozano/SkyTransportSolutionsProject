@@ -24,10 +24,10 @@ test.describe('client portal', () => {
     await expect(documentsTab).toContainText(outstanding)
   })
 
-  test('tab row stays pinned while the deadlines list scrolls', async ({ page }) => {
+  test('nav stays pinned while the deadlines list scrolls', async ({ page }) => {
     await page.goto(`/c/${showcaseToken()}/deadlines`)
 
-    await page.evaluate(() => window.scrollTo(0, 2000))
+    await page.locator('main').evaluate((main) => main.scrollTo(0, 2000))
     await expect(page.getByRole('link', { name: 'Overview' })).toBeInViewport()
     await expect(page.getByRole('link', { name: 'Staff', exact: true })).toBeInViewport()
   })
@@ -54,17 +54,12 @@ test.describe('client portal', () => {
     await expect(page.getByRole('heading', { name: /Altamont Freight Systems/ })).toBeVisible()
   })
 
-  test('sample document downloads as a real PDF', async ({ page }) => {
-    const token = showcaseToken()
-    await page.goto(`/c/${token}/documents`)
+  test('sample document route serves a real PDF', async ({ request }) => {
+    const response = await request.get(`/api/samples/${outstandingRequestId()}`)
 
-    const downloadPromise = page.waitForEvent('download')
-    await page.getByRole('link', { name: /Download a sample to test/ }).first().click()
-    const download = await downloadPromise
-
-    expect(download.suggestedFilename()).toMatch(/\.pdf$/)
-    const path = await download.path()
-    expect(path).toBeTruthy()
+    expect(response.ok()).toBe(true)
+    expect(response.headers()['content-disposition']).toMatch(/\.pdf"?$/)
+    expect((await response.body()).subarray(0, 5).toString()).toBe('%PDF-')
   })
 
   test('uploading the sample extracts its fields end to end', async ({ page }) => {
@@ -73,20 +68,18 @@ test.describe('client portal', () => {
 
     await page.goto(`/c/${token}/documents`)
 
-    // 1. Download the sample generated for this specific request.
-    const downloadPromise = page.waitForEvent('download')
-    await page
-      .locator(`a[href="/api/samples/${documentId}"]`)
-      .first()
-      .click()
-    const download = await downloadPromise
-    const samplePath = await download.path()
+    // 1. Fetch the sample generated for this specific request.
+    const sample = await page.request.get(`/api/samples/${documentId}`)
 
     // 2. Post it back through the upload control.
-    await page.locator('input[type="file"]').first().setInputFiles(samplePath!)
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'sample.pdf',
+      mimeType: 'application/pdf',
+      buffer: await sample.body(),
+    })
 
-    // 3. The request moves out of "we need" and into "already sent".
-    await expect(page.getByText('Already sent')).toBeVisible({ timeout: 30_000 })
+    // 3. What was read shows straight back in the card that was uploaded to.
+    await expect(page.getByText('Received', { exact: true })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('What we read').first()).toBeVisible()
 
     // 4. And the parse actually landed in the database, not just the DOM.
@@ -100,6 +93,13 @@ test.describe('client portal', () => {
       `SELECT "extractedFields"->>'expiresOn' FROM "Document" WHERE id='${documentId}';`,
     )
     expect(expiry).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+
+    // 5. The showcase account is demo-able on repeat: a reload files the upload
+    //    under "Already sent" and puts a fresh request back in its place.
+    await page.reload()
+    await expect(page.getByText('Already sent')).toBeVisible()
+    await expect(page.locator('input[type="file"]').first()).toBeAttached()
+    expect(outstandingRequestId()).not.toBe(documentId)
   })
 
   test('the uploaded document then appears on the staff scans screen', async ({ page }) => {

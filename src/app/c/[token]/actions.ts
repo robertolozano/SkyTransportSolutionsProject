@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/server/db'
 import { storeUpload } from '@/server/storage'
+import { isDemoCarrier } from '@/server/demo'
+import { readBack, type ReadBack } from '@/server/readBack'
 import {
   detectMediaType,
   extractDocument,
@@ -28,6 +30,13 @@ export interface UploadResult {
   ok: boolean
   documentId?: string
   message: string
+  /** What the parser read, for showing straight back in the upload card. */
+  read?: ReadBack
+  /**
+   * Showcase account: the card shows the result in place instead of refreshing,
+   * and the next page load puts the request back (see `ensureDemoRequest`).
+   */
+  demo?: boolean
 }
 
 export async function submitDocument(
@@ -37,7 +46,7 @@ export async function submitDocument(
 ): Promise<UploadResult> {
   const carrier = await prisma.carrier.findUnique({
     where: { portalToken: token },
-    select: { id: true },
+    select: { id: true, dotNumber: true },
   })
   if (!carrier) return { ok: false, message: 'This link is no longer valid.' }
 
@@ -112,12 +121,21 @@ export async function submitDocument(
     })
   }
 
-  revalidatePath(`/c/${token}`)
-  revalidatePath(`/c/${token}/documents`)
+  const demo = isDemoCarrier(carrier)
+
+  // Revalidating re-renders the page in this same response, and on the showcase
+  // account that render would immediately put the request back — replacing the
+  // card that is about to show what was read. There, the reload does it instead.
+  if (!demo) {
+    revalidatePath(`/c/${token}`)
+    revalidatePath(`/c/${token}/documents`)
+  }
 
   return {
     ok: true,
     documentId: document.id,
+    read: result.status === 'EXTRACTED' ? readBack(result.fields) : undefined,
+    demo,
     message:
       result.status === 'EXTRACTED'
         ? 'Got it — we read the document and our team will confirm the details.'

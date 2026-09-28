@@ -44,8 +44,8 @@ is seeded. Re-run these four scripts any time you want it to look fresh.
 
 1. Sign in at [vercel.com](https://vercel.com) with GitHub.
 2. **Add New → Project**, import `robertolozano/SkyTransportSolutionsProject`.
-3. Set **Root Directory** to `compliance-radar`. This matters — the repository
-   root is one level above the app.
+3. Leave **Root Directory** at the default — the repository root *is* the app
+   (`package.json` sits at the top level).
 4. Add **two** environment variables:
 
    | Name | Value |
@@ -68,12 +68,12 @@ deployment.
 ## 4. Check it came up
 
 - `/dashboard` — the staff console
-- `/start` — the public walkthrough
+- `/` — the public walkthrough (also at `/start`)
 - `/clients` → open a carrier → **View as client** — the portal
 
 Then exercise the loop that touches the most machinery: on the client's
-**Documents** tab, *Download a sample to test*, then *Choose file* and upload it
-back. If the extracted fields appear, the database, the Server Action, blob
+**Documents** tab, download a sample from `/api/samples/<documentId>` (the id of
+an outstanding request), then *Choose file* and upload it. If the extracted fields appear, the database, the Server Action, blob
 storage, and the parser are all working.
 
 ## 5. Optional — enable vision extraction

@@ -1,8 +1,11 @@
 import { notFound } from 'next/navigation'
 import { prisma } from '@/server/db'
 import { formatDay, daysBetween } from '@/rules/dates'
-import { DOCUMENT_TYPE_LABELS, type DetectedDocumentType, type ExtractedFields } from '@/server/extract'
+import type { ExtractedFields } from '@/server/extract'
+import { ensureDemoRequest, isDemoCarrier } from '@/server/demo'
+import { readBack } from '@/server/readBack'
 import { DocumentUpload } from './DocumentUpload'
+import { WhatWeRead } from './WhatWeRead'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,8 +13,8 @@ export const dynamic = 'force-dynamic'
  * Documents.
  *
  * Outstanding requests first, because that is the only part the carrier can act
- * on. Everything already sent moves below, so the page shrinks as the work gets
- * done rather than growing.
+ * on. Everything already sent sits beside them on a wide screen and below them
+ * on a phone, so the to-do side shrinks as the work gets done rather than growing.
  */
 export default async function ClientDocumentsPage({
   params,
@@ -19,6 +22,7 @@ export default async function ClientDocumentsPage({
   params: Promise<{ token: string }>
 }) {
   const { token } = await params
+  await ensureDemoRequest(token)
 
   const carrier = await prisma.carrier.findUnique({
     where: { portalToken: token },
@@ -43,9 +47,9 @@ export default async function ClientDocumentsPage({
         : 'Your company'
 
   return (
-    <>
+    <div className="grid items-start gap-6 xl:grid-cols-2">
       {outstanding.length === 0 ? (
-        <section className="mb-6 rounded-xl border border-good-edge bg-good-soft px-6 py-6">
+        <section className="rounded-xl border border-good-edge bg-good-soft px-6 py-6">
           <div className="text-xl font-semibold text-ink">Nothing outstanding.</div>
           <p className="mt-2 text-[15px] leading-relaxed text-ink-soft">
             We have everything we need from you right now. If a document is coming up for renewal,
@@ -53,7 +57,7 @@ export default async function ClientDocumentsPage({
           </p>
         </section>
       ) : (
-        <section className="mb-8">
+        <section>
           <h2 className="mb-1 text-[15px] font-semibold text-ink">
             We need {outstanding.length === 1 ? 'this' : `these ${outstanding.length}`}
           </h2>
@@ -93,7 +97,12 @@ export default async function ClientDocumentsPage({
                   </div>
 
                   <div className="mt-4">
-                    <DocumentUpload token={token} documentId={doc.id} label={doc.type} />
+                    <DocumentUpload
+                      token={token}
+                      documentId={doc.id}
+                      label={doc.type}
+                      demo={isDemoCarrier(carrier)}
+                    />
                   </div>
                 </li>
               )
@@ -102,7 +111,11 @@ export default async function ClientDocumentsPage({
         </section>
       )}
 
-      {received.length > 0 && (
+      {received.length === 0 ? (
+        <section className="rounded-xl border border-dashed border-edge-strong px-6 py-6 text-[13px] leading-relaxed text-ink-faint">
+          Documents you send show up here, along with what we read from them.
+        </section>
+      ) : (
         <section>
           <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-wide text-ink-soft">
             Already sent
@@ -122,32 +135,9 @@ export default async function ClientDocumentsPage({
                     </div>
                   </div>
 
-                  {/* What we read back, so the client can catch a misread immediately. */}
                   {doc.extractionStatus === 'EXTRACTED' && fields && (
-                    <div className="mt-3 rounded-lg border border-edge bg-canvas px-4 py-3">
-                      <div className="text-[12px] font-medium uppercase tracking-wide text-ink-faint">
-                        What we read
-                      </div>
-                      <dl className="mt-2 space-y-1 text-[13px]">
-                        {fields.documentType && (
-                          <Row
-                            label="Document"
-                            value={
-                              DOCUMENT_TYPE_LABELS[fields.documentType as DetectedDocumentType] ??
-                              fields.documentType
-                            }
-                          />
-                        )}
-                        {fields.issuedTo && <Row label="Issued to" value={fields.issuedTo} />}
-                        {fields.identifier && <Row label="Number" value={fields.identifier} />}
-                        {fields.expiresOn && <Row label="Expires" value={fields.expiresOn} />}
-                      </dl>
-                      <p className="mt-2.5 text-[13px] leading-relaxed text-ink-faint">
-                        {fields.confidence === 'low'
-                          ? 'Some of this was hard to read, so a person on our team is checking it.'
-                          : 'Our team confirms these details before anything is filed.'}
-                        {fields.notes ? ` ${fields.notes}` : ''}
-                      </p>
+                    <div className="mt-3">
+                      <WhatWeRead {...readBack(fields)} />
                     </div>
                   )}
 
@@ -167,15 +157,7 @@ export default async function ClientDocumentsPage({
           </ul>
         </section>
       )}
-    </>
-  )
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="text-ink-faint">{label}</dt>
-      <dd className="numeric text-right text-ink">{value}</dd>
     </div>
   )
 }
+

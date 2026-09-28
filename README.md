@@ -206,7 +206,7 @@ navigation convenience:
 
 | Surface | Who | Auth |
 |---|---|---|
-| **`/start`** — public walkthrough | A carrier who is not a customer yet | None. An account is the *output* of this flow. |
+| **`/`** (alias `/start`) — public walkthrough | A carrier who is not a customer yet | None. An account is the *output* of this flow. |
 | **`/c/<token>`** — client portal | An existing customer | An unguessable token authorising exactly one account |
 | **Staff console** | Sky employees | Sees every carrier |
 
@@ -221,7 +221,7 @@ lead → their portal shows an onboarding state rather than a compliance dashboa
 carrier's client view from the carrier record itself ("View as client"), which is authorised —
 unlike a carrier list inside the portal, which would be a customer-list disclosure.
 
-**20 routes**, split across those three audiences.
+**19 routes**, split across those three audiences.
 
 *Staff console* — dashboard work queue · client book · carrier detail with filing history ·
 truck detail with the dependency chain, backward-scheduled action plan, and what-if simulator ·
@@ -237,9 +237,9 @@ toggle in each shell switches between the two views for demo purposes.
 **Document capture.** Three ways in, because the right one depends on where the user is:
 **Open camera** uses `getUserMedia`, so a live viewfinder appears on a laptop as well as a phone
 (the `capture` attribute alone only opens the camera on mobile — on desktop browsers silently
-ignore it and show a file dialog); **Choose file** accepts an image or a PDF; and **Download a
-sample to test** generates a filled PDF for that specific request so the loop can be exercised
-without hunting for a real medical card. Photographs are downscaled in the browser first — a
+ignore it and show a file dialog); and **Choose file** accepts an image or a PDF. For testing,
+`/api/samples/<documentId>` generates a filled PDF for a specific request, so the loop can be
+exercised without hunting for a real medical card. Photographs are downscaled in the browser first — a
 4–12 MB camera shot becomes ~200 KB, and on truck-stop signal that decides whether the upload
 finishes.
 
@@ -318,7 +318,7 @@ hides its own uncertainty is worse than one that admits it:
 
 ## Demo path
 
-0. **`/start`** — the public walkthrough, before anyone is a customer. Answer "no" to *crossing
+0. **`/`** (also `/start`) — the public walkthrough, the site's front page, before anyone is a customer. Answer "no" to *crossing
    state lines* and watch the requirement list drop from 10 to 5 and the price from $1,200 to
    $975. Complete it and you land on a real account; the new lead is at the top of `/clients`.
 1. **`/dashboard`** — the risk strip, and the asymmetry callout: trucks about to be parked
@@ -335,15 +335,13 @@ hides its own uncertainty is worse than one that admits it:
 6. **`/requests`** — proactive document collection and the escalation ladder, with a live count
    of how many requests sit at each rung.
 7. **`/opportunities`** — the same computation read as revenue.
-8. **`/onboarding`** — the engine run forward. Toggle "crossing state lines" off and watch
-   half the requirements disappear and the price drop from $1,200 to $975.
-9. **Flip the toggle to Client** (bottom of the sidebar) — the same account, seen by the carrier.
-   Same data, no jargon, no dashboard. On **Documents**, click *Download a sample to test*, then
-   *Choose file* and upload it back: the capture → parse → reconcile loop runs end to end and the
+8. **Flip the toggle to Client** (bottom of the sidebar) — the same account, seen by the carrier.
+   Same data, no jargon, no dashboard. On **Documents**, click *Choose file* and upload a
+   sample PDF (e.g. `sample-medical-certificate.pdf` in the project root): the capture → parse → reconcile loop runs end to end and the
    page shows what was read. *Open camera* does the same from a live viewfinder. Then subscribe to
    the calendar feed.
-10. **Back to Staff → `/scans`** — the other half of that loop: what was read from the image set
-    against what the record says, with mismatches called out for a person to adjudicate.
+9. **Back to Staff → `/scans`** — the other half of that loop: what was read from the image set
+   against what the record says, with mismatches called out for a person to adjudicate.
 
 Get a portal token with:
 
